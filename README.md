@@ -1,7 +1,8 @@
 # 💖 Study Quiz — Minecraft Bedrock Add-On
 
-A cute, pink **study-quiz** add-on for **Bedrock Dedicated Server (BDS)**. Players answer
-pop quizzes while they play, earn an adorable **pink Study Coin**, spend coins in an
+A cute, pink aesthetics (Planning on adding different colors but pink is my favorite) **study-quiz** add-on for **Bedrock Dedicated Server (BDS)**. 
+
+Players answer pop quizzes while they play, earn an adorable **pink Study Coin**, spend coins in an
 in-game **Store**, and risk dropping their coins on a wrong answer.
 
 Works **offline** with built-in questions, with optional **live AI** for endless,
@@ -10,9 +11,9 @@ any-subject questions.
 ---
 
 ## ✨ Features
-- Timed pop quizzes with a 3-2-1 countdown
+- Timed pop quizzes with a 3-2-1 countdown before the user is prompted with the question so they can prepare while in game.
 - Collectible **pink Study Coin** item (real inventory item)
-- Multi-category **Store** (Food / Materials / Premium)
+- Multi-category **Store** (Food / Materials / Premium items)
 - Configurable wrong-answer penalty (held item / hotbar / full inventory)
 - Per-player settings, coins, mastery & stats
 - Optional AI-generated questions via a secure local gateway
@@ -43,9 +44,7 @@ USER_GUIDE.md       Full setup + how-to-play guide
 ---
 
 ## 🔒 Security note
-Your AI API key lives **only** in `proxy/anthropic-key.txt`, which is git-ignored and
-never bundled into the shareable add-on. Never paste a real key into chat, a
-screenshot, or a pack file. If a key is ever exposed, regenerate it.
+Your AI API key lives **only** in `proxy/anthropic-key.txt`
 
 ---
 
