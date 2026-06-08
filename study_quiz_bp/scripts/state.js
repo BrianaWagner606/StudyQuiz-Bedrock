@@ -109,7 +109,10 @@ function normalizeConfig(raw, availableTopics) {
   const apiKey = FILE_API_KEY || playerApiKey || DEFAULT_CONFIG.apiKey;
 
   return {
-    intervalMin: Number.isFinite(cfg.intervalMin) ? Math.max(1, Math.min(60, Math.round(cfg.intervalMin))) : DEFAULT_CONFIG.intervalMin,
+    // Stored in minutes; fractional values allowed so the interval can be set
+    // below a minute (e.g. 0.25 = 15s). Floor of 0.25 keeps it above the 5s
+    // auto-prompt check cadence.
+    intervalMin: Number.isFinite(cfg.intervalMin) ? Math.max(0.25, Math.min(60, cfg.intervalMin)) : DEFAULT_CONFIG.intervalMin,
     answerSec: Number.isFinite(cfg.answerSec) ? Math.max(5, Math.min(120, Math.round(cfg.answerSec))) : DEFAULT_CONFIG.answerSec,
     topic,
     optionCount: Number.isFinite(cfg.optionCount) ? Math.max(2, Math.min(6, Math.round(cfg.optionCount))) : DEFAULT_CONFIG.optionCount,

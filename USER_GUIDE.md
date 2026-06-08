@@ -141,7 +141,7 @@ Open the book → **Settings**:
 
 | Setting | What it does | Default |
 | --- | --- | --- |
-| Quiz interval (minutes) | How often a quiz pops up | 5 |
+| Quiz interval | How often a quiz pops up (15 sec up to 60 min) | 5 min |
 | Answer time limit (seconds) | Time allowed per question | 25 |
 | Topic | The subject of your questions | general_science |
 | Options per question | Number of answer buttons | 4 |
