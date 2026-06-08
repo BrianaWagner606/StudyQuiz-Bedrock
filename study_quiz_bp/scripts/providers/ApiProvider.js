@@ -208,21 +208,43 @@ export class ApiProvider extends QuestionProvider {
     return endpoint.includes("anthropic.com") || key.startsWith("sk-ant-");
   }
 
-  buildAnthropicRequest(config, topic, optionCount) {
-    const prompt = [
+  buildPrompt(topic, optionCount, avoidTexts, variety) {
+    const lines = [
       "Return ONLY a JSON array with no markdown and no extra text.",
       "Each array item must match exactly:",
       '{ "question": "...", "options": ["...","...","...","..."], "answerIndex": 0 }',
       `Topic: ${topic}`,
-      `Generate 8 questions. Use exactly ${optionCount} distinct options for each question.`,
-      "answerIndex must be the integer index of the correct option."
-    ].join("\n");
+      `Generate 10 questions. Use exactly ${optionCount} distinct options for each question.`,
+      "answerIndex must be the integer index of the correct option.",
+      "Every question must be NEW and clearly different in wording AND subject matter from any listed below.",
+      "Explore less-common sub-topics, deeper details, and applied/scenario angles rather than repeating the most obvious facts."
+    ];
+
+    if (variety) {
+      lines.push(`Focus this batch on: ${variety}.`);
+    }
+
+    const avoid = Array.isArray(avoidTexts) ? avoidTexts.filter((t) => `${t ?? ""}`.trim()) : [];
+    if (avoid.length > 0) {
+      // Cap the avoid list so the request body stays small for the in-game HTTP client.
+      const sample = avoid.slice(-40);
+      lines.push("Do NOT produce any question equivalent to these already-seen questions:");
+      for (const text of sample) {
+        lines.push(`- ${text}`);
+      }
+    }
+
+    return lines.join("\n");
+  }
+
+  buildAnthropicRequest(config, topic, optionCount, avoidTexts, variety) {
+    const prompt = this.buildPrompt(topic, optionCount, avoidTexts, variety);
 
     const payload = {
       model: config.model,
-      max_tokens: 1400,
-      temperature: 0.5,
-      system: "You generate concise quiz items.",
+      max_tokens: 1800,
+      temperature: 0.9,
+      system: "You generate concise, varied quiz items and never repeat questions.",
       messages: [
         {
           role: "user",
@@ -243,29 +265,22 @@ export class ApiProvider extends QuestionProvider {
     return request;
   }
 
-  buildOpenAiRequest(config, topic, optionCount) {
-    const prompt = [
-      "Return ONLY a JSON array with no markdown and no extra text.",
-      "Each array item must match exactly:",
-      '{ "question": "...", "options": ["...","...","...","..."], "answerIndex": 0 }',
-      `Topic: ${topic}`,
-      `Generate 8 questions. Use exactly ${optionCount} distinct options for each question.`,
-      "answerIndex must be the integer index of the correct option."
-    ].join("\n");
+  buildOpenAiRequest(config, topic, optionCount, avoidTexts, variety) {
+    const prompt = this.buildPrompt(topic, optionCount, avoidTexts, variety);
 
     const payload = {
       model: config.model,
       messages: [
         {
           role: "system",
-          content: "You generate concise quiz items."
+          content: "You generate concise, varied quiz items and never repeat questions."
         },
         {
           role: "user",
           content: prompt
         }
       ],
-      temperature: 0.5
+      temperature: 0.9
     };
 
     const request = new HttpRequest(config.endpoint);
@@ -278,10 +293,10 @@ export class ApiProvider extends QuestionProvider {
     return request;
   }
 
-  async callApi(config, topic, optionCount) {
+  async callApi(config, topic, optionCount, avoidTexts, variety) {
     const request = this.shouldUseAnthropic(config)
-      ? this.buildAnthropicRequest(config, topic, optionCount)
-      : this.buildOpenAiRequest(config, topic, optionCount);
+      ? this.buildAnthropicRequest(config, topic, optionCount, avoidTexts, variety)
+      : this.buildOpenAiRequest(config, topic, optionCount, avoidTexts, variety);
 
     const response = await http.request(request);
     const bodyText = response?.body ?? "";
@@ -294,7 +309,7 @@ export class ApiProvider extends QuestionProvider {
     };
   }
 
-  async getQuestions(topic, optionCount, excludeIds = new Set(), overrideConfig = null) {
+  async getQuestions(topic, optionCount, excludeIds = new Set(), overrideConfig = null, avoidTexts = []) {
     const config = this.resolveConfig(overrideConfig);
     if (!config) {
       const fallback = await this.fallbackProvider.getQuestions(topic, optionCount, excludeIds);
@@ -305,10 +320,23 @@ export class ApiProvider extends QuestionProvider {
       };
     }
 
+    // Rotating angles so repeated batches for an exhausted topic keep diverging
+    // instead of asking for "8 questions" the same way every time.
+    const VARIETY_ANGLES = [
+      "core fundamentals",
+      "real-world applications and examples",
+      "common misconceptions and tricky edge cases",
+      "history, discoveries, and key figures",
+      "advanced or less-common details",
+      "comparisons and relationships between concepts"
+    ];
+    const angleBase = Array.isArray(avoidTexts) ? avoidTexts.length : 0;
+
     let finalError = "invalid_json";
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const result = await this.callApi(config, topic, optionCount);
+        const variety = VARIETY_ANGLES[(angleBase + attempt) % VARIETY_ANGLES.length];
+        const result = await this.callApi(config, topic, optionCount, avoidTexts, variety);
         if (result.status < 200 || result.status >= 300) {
           finalError = `http_${result.status}${result.errorMessage ? `:${result.errorMessage}` : ""}`;
           continue;

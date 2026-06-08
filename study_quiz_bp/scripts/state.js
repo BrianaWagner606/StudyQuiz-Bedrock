@@ -16,11 +16,20 @@ const DP_CONFIG = "sq_config";
 const DP_COINS = "sq_coins";
 const DP_STREAKS = "sq_streaks";
 const DP_MASTERY = "sq_mastery";
+const DP_SEEN = "sq_seen";
+
+// Cap on how many recent question texts we remember per topic, and how much of
+// each we keep. These are fed back to the AI as an "avoid these" list so it
+// stops regenerating the same items once a player has mastered the obvious
+// ones. Bounded to keep the dynamic-property payload small.
+const SEEN_TEXTS_PER_TOPIC = 60;
+const SEEN_TEXT_MAX_LEN = 140;
 
 const memoryConfig = new Map();
 const memoryCoins = new Map();
 const memoryStreaks = new Map();
 const memoryMastery = new Map();
+const memorySeen = new Map();
 
 function playerKey(player) {
   return `${player?.id ?? player?.name ?? "unknown"}`;
@@ -181,5 +190,45 @@ export class PlayerStateStore {
       result[topic] = Array.isArray(ids) ? ids.length : 0;
     }
     return result;
+  }
+
+  getSeenMap(player) {
+    const key = playerKey(player);
+    const raw = `${readPlayerProperty(player, DP_SEEN, memorySeen.get(key) ?? "{}") ?? "{}"}`;
+    const parsed = safeJsonParse(raw, {});
+    return parsed && typeof parsed === "object" ? parsed : {};
+  }
+
+  setSeenMap(player, seenMap) {
+    const key = playerKey(player);
+    const raw = JSON.stringify(seenMap);
+    memorySeen.set(key, raw);
+    writePlayerProperty(player, DP_SEEN, raw);
+  }
+
+  getSeenTexts(player, topic) {
+    const seenMap = this.getSeenMap(player);
+    const list = Array.isArray(seenMap[topic]) ? seenMap[topic] : [];
+    return list.filter((item) => typeof item === "string" && item.length > 0);
+  }
+
+  // Remember the text of a question the player has already been shown, keeping a
+  // rolling window of the most recent ones (oldest dropped first).
+  addSeenText(player, topic, text) {
+    const clean = `${text ?? ""}`.trim().slice(0, SEEN_TEXT_MAX_LEN);
+    if (!clean) {
+      return;
+    }
+    const seenMap = this.getSeenMap(player);
+    const existing = Array.isArray(seenMap[topic]) ? seenMap[topic] : [];
+    if (existing.includes(clean)) {
+      return;
+    }
+    const next = [...existing, clean];
+    if (next.length > SEEN_TEXTS_PER_TOPIC) {
+      next.splice(0, next.length - SEEN_TEXTS_PER_TOPIC);
+    }
+    seenMap[topic] = next;
+    this.setSeenMap(player, seenMap);
   }
 }

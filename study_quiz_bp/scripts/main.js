@@ -559,12 +559,19 @@ async function fetchPoolQuestions(player, config, topic, masteredIds) {
   const poolIds = new Set(pool.map((q) => q.id));
   const excludeIds = new Set([...masteredIds, ...askedIds, ...poolIds]);
 
+  // Texts of questions the player has already seen, plus anything still pooled,
+  // so the AI is told what NOT to regenerate (IDs alone can't convey this).
+  const avoidTexts = [
+    ...state.getSeenTexts(player, topic),
+    ...pool.map((q) => q.question)
+  ].filter((text) => `${text ?? ""}`.trim().length > 0);
+
   const result = await apiProvider.getQuestions(topic, config.optionCount, excludeIds, {
     apiProvider: config.apiProvider,
     apiEndpoint: config.apiEndpoint,
     apiModel: config.apiModel,
     apiKey: config.apiKey
-  });
+  }, avoidTexts);
 
   const issueKey = getFetchIssueKey(player, topic);
   if (result.questions.length > 0) {
@@ -692,6 +699,10 @@ async function askQuestion(player, triggerSource) {
     }
     return;
   }
+
+  // Remember this question's text so future API batches are told to avoid it,
+  // even across sessions and after it has been mastered (mastery stores only IDs).
+  state.addSeenText(player, config.topic, question.question);
 
   const options = question.options.map((text, idx) => ({ text, idx }));
   shuffleInPlace(options);
