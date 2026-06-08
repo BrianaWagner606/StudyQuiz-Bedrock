@@ -522,6 +522,11 @@ function applyPenalty(player, mode) {
     if (!item) {
       continue;
     }
+    // Never take the Study Settings book - it is the player's tool for opening the
+    // menu, not loot. Removing it would lock them out of Settings/quizzes.
+    if (item.typeId === SETTINGS_ITEM_ID && `${item.nameTag ?? ""}` === SETTINGS_ITEM_NAME) {
+      continue;
+    }
     // Permanently remove the item. We intentionally do NOT spawn a pickup-able
     // entity here, because a script-spawned item has no pickup delay and the
     // player would instantly collect it again. Deleting the slot makes the items
