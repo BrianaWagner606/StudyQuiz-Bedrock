@@ -1,0 +1,20 @@
+{
+  "format_version": "1.21.80",
+  "minecraft:item": {
+    "description": {
+      "identifier": "studyquiz:coin",
+      "menu_category": {
+        "category": "items"
+      }
+    },
+    "components": {
+      "minecraft:icon": "study_coin",
+      "minecraft:max_stack_size": 64,
+      "minecraft:display_name": {
+        "value": "Study Coin"
+      },
+      "minecraft:hand_equipped": false,
+      "minecraft:stacked_by_data": true
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Study Quiz (BDS Live API)",
+    "description": "Bedrock Dedicated Server behavior pack for live LLM-generated study quizzes.",
+    "uuid": "7f01af09-a5e4-45cf-9f36-696f96a50c0b",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 21, 80]
+  },
+  "modules": [
+    {
+      "type": "data",
+      "uuid": "39878751-7755-4e8d-b575-cf744726e8d2",
+      "version": [1, 0, 0]
+    },
+    {
+      "type": "script",
+      "language": "javascript",
+      "entry": "scripts/main.js",
+      "uuid": "cbf27a6a-07dc-4819-a4d8-beb8d09bcc16",
+      "version": [1, 0, 0]
+    }
+  ],
+  "dependencies": [
+    {
+      "module_name": "@minecraft/server",
+      "version": "2.0.0"
+    },
+    {
+      "module_name": "@minecraft/server-ui",
+      "version": "2.0.0"
+    },
+    {
+      "module_name": "@minecraft/server-net",
+      "version": "1.0.0-beta"
+    },
+    {
+      "module_name": "@minecraft/server-admin",
+      "version": "1.0.0-beta"
+    }
+  ]
+}
