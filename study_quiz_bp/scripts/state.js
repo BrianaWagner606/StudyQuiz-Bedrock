@@ -21,9 +21,11 @@ const DP_SEEN = "sq_seen";
 // Cap on how many recent question texts we remember per topic, and how much of
 // each we keep. These are fed back to the AI as an "avoid these" list so it
 // stops regenerating the same items once a player has mastered the obvious
-// ones. Bounded to keep the dynamic-property payload small.
-const SEEN_TEXTS_PER_TOPIC = 60;
-const SEEN_TEXT_MAX_LEN = 140;
+// ones. Kept small and treated as SACRIFICIAL: if saving core data (mastery,
+// coins, ...) ever runs out of storage budget, this is dropped first so the
+// important data always persists.
+const SEEN_TEXTS_PER_TOPIC = 25;
+const SEEN_TEXT_MAX_LEN = 100;
 
 const memoryConfig = new Map();
 const memoryCoins = new Map();
@@ -35,7 +37,14 @@ function playerKey(player) {
   return `${player?.id ?? player?.name ?? "unknown"}`;
 }
 
-function readPlayerProperty(player, key, fallbackValue) {
+function readPlayerProperty(player, key, memoryMap, fallbackValue) {
+  // Prefer the in-memory value: it reflects the most recent successful set()
+  // this session even if the on-disk write later failed (e.g. storage budget),
+  // so mastery/coins stay correct in-session regardless of disk state.
+  const id = playerKey(player);
+  if (memoryMap && memoryMap.has(id)) {
+    return memoryMap.get(id);
+  }
   try {
     const value = player.getDynamicProperty(key);
     return value ?? fallbackValue;
@@ -48,9 +57,33 @@ function writePlayerProperty(player, key, value) {
   try {
     player.setDynamicProperty(key, value);
     return true;
-  } catch {
+  } catch (error) {
+    console.warn(`[StudyQuiz] Failed to persist '${key}': ${error}`);
     return false;
   }
+}
+
+// The seen-texts blob is the only optional, droppable data we store. Clearing
+// it frees storage budget so a failed core write (mastery, etc.) can retry.
+function freeLowPriorityStorage(player) {
+  memorySeen.delete(playerKey(player));
+  try {
+    player.setDynamicProperty(DP_SEEN, undefined);
+  } catch {
+    // Best effort; nothing more we can do to reclaim space here.
+  }
+}
+
+// Persist important data with memory as the in-session source of truth. If the
+// disk write fails, sacrifice the seen-texts blob and retry once so mastery,
+// coins, streaks and config never get starved by the avoid-list cache.
+function writeCoreProperty(player, key, memoryMap, value) {
+  memoryMap.set(playerKey(player), value);
+  if (writePlayerProperty(player, key, value)) {
+    return true;
+  }
+  freeLowPriorityStorage(player);
+  return writePlayerProperty(player, key, value);
 }
 
 function normalizeConfig(raw, availableTopics) {
@@ -90,22 +123,17 @@ function normalizeConfig(raw, availableTopics) {
 
 export class PlayerStateStore {
   getConfig(player, availableTopics) {
-    const key = playerKey(player);
-    const raw = `${readPlayerProperty(player, DP_CONFIG, memoryConfig.get(key) ?? "") ?? ""}`;
+    const raw = `${readPlayerProperty(player, DP_CONFIG, memoryConfig, "") ?? ""}`;
     const parsed = safeJsonParse(raw, {});
     return normalizeConfig(parsed, availableTopics);
   }
 
   setConfig(player, config) {
-    const key = playerKey(player);
-    const raw = JSON.stringify(config);
-    memoryConfig.set(key, raw);
-    writePlayerProperty(player, DP_CONFIG, raw);
+    writeCoreProperty(player, DP_CONFIG, memoryConfig, JSON.stringify(config));
   }
 
   getCoins(player) {
-    const key = playerKey(player);
-    const coins = Number(readPlayerProperty(player, DP_COINS, memoryCoins.get(key) ?? 0) ?? 0);
+    const coins = Number(readPlayerProperty(player, DP_COINS, memoryCoins, 0) ?? 0);
     if (!Number.isInteger(coins) || coins < 0) {
       return 0;
     }
@@ -113,10 +141,8 @@ export class PlayerStateStore {
   }
 
   setCoins(player, coins) {
-    const key = playerKey(player);
     const safe = Math.max(0, Math.round(coins));
-    memoryCoins.set(key, safe);
-    writePlayerProperty(player, DP_COINS, safe);
+    writeCoreProperty(player, DP_COINS, memoryCoins, safe);
     return safe;
   }
 
@@ -126,17 +152,13 @@ export class PlayerStateStore {
   }
 
   getStreaks(player) {
-    const key = playerKey(player);
-    const raw = `${readPlayerProperty(player, DP_STREAKS, memoryStreaks.get(key) ?? "{}") ?? "{}"}`;
+    const raw = `${readPlayerProperty(player, DP_STREAKS, memoryStreaks, "{}") ?? "{}"}`;
     const parsed = safeJsonParse(raw, {});
     return parsed && typeof parsed === "object" ? parsed : {};
   }
 
   setStreaks(player, streaks) {
-    const key = playerKey(player);
-    const raw = JSON.stringify(streaks);
-    memoryStreaks.set(key, raw);
-    writePlayerProperty(player, DP_STREAKS, raw);
+    writeCoreProperty(player, DP_STREAKS, memoryStreaks, JSON.stringify(streaks));
   }
 
   getQuestionStreak(player, questionId) {
@@ -156,17 +178,13 @@ export class PlayerStateStore {
   }
 
   getMasteryMap(player) {
-    const key = playerKey(player);
-    const raw = `${readPlayerProperty(player, DP_MASTERY, memoryMastery.get(key) ?? "{}") ?? "{}"}`;
+    const raw = `${readPlayerProperty(player, DP_MASTERY, memoryMastery, "{}") ?? "{}"}`;
     const parsed = safeJsonParse(raw, {});
     return parsed && typeof parsed === "object" ? parsed : {};
   }
 
   setMasteryMap(player, masteryMap) {
-    const key = playerKey(player);
-    const raw = JSON.stringify(masteryMap);
-    memoryMastery.set(key, raw);
-    writePlayerProperty(player, DP_MASTERY, raw);
+    writeCoreProperty(player, DP_MASTERY, memoryMastery, JSON.stringify(masteryMap));
   }
 
   getMasteredIds(player, topic) {
@@ -193,16 +211,17 @@ export class PlayerStateStore {
   }
 
   getSeenMap(player) {
-    const key = playerKey(player);
-    const raw = `${readPlayerProperty(player, DP_SEEN, memorySeen.get(key) ?? "{}") ?? "{}"}`;
+    const raw = `${readPlayerProperty(player, DP_SEEN, memorySeen, "{}") ?? "{}"}`;
     const parsed = safeJsonParse(raw, {});
     return parsed && typeof parsed === "object" ? parsed : {};
   }
 
   setSeenMap(player, seenMap) {
-    const key = playerKey(player);
+    // Low-priority/sacrificial: keep it in memory and make a best-effort disk
+    // write. If the budget is full the write simply fails and that is fine;
+    // core data writes take precedence via writeCoreProperty.
     const raw = JSON.stringify(seenMap);
-    memorySeen.set(key, raw);
+    memorySeen.set(playerKey(player), raw);
     writePlayerProperty(player, DP_SEEN, raw);
   }
 
