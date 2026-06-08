@@ -162,6 +162,26 @@ questions, run the small included **proxy** program. It keeps your secret API ke
 2. Then start your Minecraft server.
 3. Join and take a quiz — questions now come from the AI.
 
+### ⚠️ "Windows protected your PC" / antivirus says the .bat is unsafe
+This is a **false alarm**, not a virus. Windows flags **any** script file
+downloaded from the internet (this is called the "Mark of the Web"). The
+launcher is a tiny plain-text file — you can open `start-proxy.bat` in Notepad
+and read every line; it only runs `node server.js`.
+
+To allow it to run, do **one** of these:
+
+- **Unblock it (recommended, one time):** right-click `start-proxy.bat` →
+  **Properties** → at the bottom check **Unblock** → **OK**. The warning is gone
+  for good. (Do the same for `server.js` if prompted.)
+- **Or click through the prompt:** on the blue "Windows protected your PC" box,
+  click **More info** → **Run anyway**.
+- **Or unblock everything at once:** open PowerShell in the project folder and run
+  `Get-ChildItem -Recurse | Unblock-File`.
+
+If your antivirus quarantines it, add the project folder to its allow/exclusion
+list. The launcher needs **Node.js installed** — if it isn't, the window will
+tell you and link to https://nodejs.org.
+
 ### How it connects
 The game is pre-configured to talk to the proxy at `http://127.0.0.1:8787`.
 The proxy adds your key, calls the AI provider, caches repeats, and returns the
