@@ -30,18 +30,73 @@ const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 const CACHE_TTL_MS = 1000 * 60 * 60; // cache identical requests for 1 hour
 const cache = new Map();
 
+// Where the key was actually found (for friendly console output).
+let KEY_SOURCE = "";
+
+function cleanKey(raw) {
+  return `${raw ?? ""}`.replace(/\s+/g, "").trim();
+}
+
+function looksLikePlaceholder(key) {
+  const k = key.toUpperCase();
+  return (
+    !key ||
+    k.includes("PASTE") ||
+    k.includes("REPLACE") ||
+    k.includes("YOUR-") ||
+    k.includes("YOUR_") ||
+    k.includes("HERE")
+  );
+}
+
 function loadKey() {
+  // 1. Environment variable wins.
   if (process.env.ANTHROPIC_API_KEY) {
-    return `${process.env.ANTHROPIC_API_KEY}`.trim();
+    const envKey = cleanKey(process.env.ANTHROPIC_API_KEY);
+    if (!looksLikePlaceholder(envKey)) {
+      KEY_SOURCE = "environment variable ANTHROPIC_API_KEY";
+      return envKey;
+    }
   }
-  const keyFile = path.join(__dirname, "anthropic-key.txt");
+
+  // 2. Preferred filenames (handles the Windows hidden-extension trap where a
+  //    renamed file becomes anthropic-key.txt.txt).
+  const preferred = ["anthropic-key.txt", "anthropic-key.txt.txt", "anthropic-key"];
+  for (const name of preferred) {
+    const p = path.join(__dirname, name);
+    try {
+      if (fs.existsSync(p)) {
+        const key = cleanKey(fs.readFileSync(p, "utf8"));
+        if (!looksLikePlaceholder(key)) {
+          KEY_SOURCE = name;
+          return key;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // 3. Last resort: scan the folder for any *key*.txt that isn't the example
+  //    template and isn't a placeholder. Catches typos like "anthropickey.txt".
   try {
-    if (fs.existsSync(keyFile)) {
-      return fs.readFileSync(keyFile, "utf8").replace(/\s+/g, "").trim();
+    const files = fs.readdirSync(__dirname);
+    for (const name of files) {
+      const lower = name.toLowerCase();
+      if (lower.includes("example")) continue;
+      if (!lower.includes("key")) continue;
+      if (!lower.endsWith(".txt")) continue;
+      const key = cleanKey(fs.readFileSync(path.join(__dirname, name), "utf8"));
+      if (key.startsWith("sk-") && !looksLikePlaceholder(key)) {
+        KEY_SOURCE = name + " (auto-detected)";
+        return key;
+      }
     }
   } catch {
     /* ignore */
   }
+
+  KEY_SOURCE = "";
   return "";
 }
 
@@ -189,12 +244,25 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  const keyOk = loadKey().length > 0;
+  const key = loadKey();
+  const keyOk = key.length > 0;
   console.log("============================================================");
   console.log(` Study Quiz local AI gateway running`);
   console.log(`   URL:   http://${HOST}:${PORT}/v1/chat/completions`);
   console.log(`   Model: ${DEFAULT_MODEL}`);
-  console.log(`   Key:   ${keyOk ? "loaded from anthropic-key.txt / env" : "MISSING -> add proxy/anthropic-key.txt"}`);
+  if (keyOk) {
+    console.log(`   Key:   loaded from ${KEY_SOURCE} (starts ${key.slice(0, 7)}..., length ${key.length})`);
+  } else {
+    console.log(`   Key:   MISSING`);
+    console.log("");
+    console.log("   >> No usable API key was found. To fix:");
+    console.log("      1. In this 'proxy' folder, make a file named exactly:");
+    console.log("            anthropic-key.txt");
+    console.log("         (Windows tip: turn ON View > File name extensions so it");
+    console.log("          is NOT secretly saved as anthropic-key.txt.txt)");
+    console.log("      2. Paste your Anthropic key (starts with sk-ant-) on one line.");
+    console.log("      3. Save, then close and re-run start-proxy.bat.");
+  }
   console.log("   Keep this window open while you play. Ctrl+C to stop.");
   console.log("============================================================");
 });
