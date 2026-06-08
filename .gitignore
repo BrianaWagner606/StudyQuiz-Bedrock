@@ -1,7 +1,9 @@
 # --- Secrets: never commit or share these ---
+# The key file is created locally on first run of start-proxy.bat. Never commit it.
 proxy/anthropic-key.txt
+proxy/anthropic-key.txt.txt
 proxy/*-key.txt
-!proxy/*.example.txt
+proxy/*-key.txt.txt
 
 # --- Build output: ignore everything except the shareable add-on ---
 dist/*

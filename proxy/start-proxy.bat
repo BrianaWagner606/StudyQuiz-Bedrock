@@ -25,15 +25,20 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM --- 2. Check that an API key file exists ---
+REM --- 2. Make sure the key file exists (create it the first time) ---
 if not exist "anthropic-key.txt" (
-    echo [ERROR] Missing your API key file:  anthropic-key.txt
+    echo Creating your API key file:  anthropic-key.txt
+    echo PASTE-YOUR-ANTHROPIC-API-KEY-HERE> "anthropic-key.txt"
     echo.
-    echo   1. Make a copy of  anthropic-key.example.txt
-    echo   2. Rename the copy to  anthropic-key.txt
-    echo   3. Open it and paste YOUR OWN Anthropic API key ^(one line^).
+    echo [ACTION NEEDED] A file named  anthropic-key.txt  was just created.
+    echo It is opening in Notepad now.
+    echo.
+    echo   1. Delete the placeholder text.
+    echo   2. Paste YOUR OWN Anthropic API key ^(starts with sk-ant-^) on one line.
+    echo   3. Save the file ^(Ctrl+S^) and close Notepad.
     echo   4. Run start-proxy.bat again.
     echo.
+    start "" notepad "anthropic-key.txt"
     pause
     exit /b 1
 )
