@@ -315,7 +315,9 @@ async function promptForPlayerApiConfig(player, config) {
 
 async function openSettingsMenu(player) {
   const cfg = state.getConfig(player, getAvailableTopics());
-  const intervalChoices = [1, 3, 5, 10, 15, 20, 30, 45, 60];
+  // Interval values are in minutes; sub-minute options use fractions.
+  const intervalChoices = [0.25, 0.5, 0.75, 1, 3, 5, 10, 15, 20, 30, 45, 60];
+  const intervalLabels = ["15 sec", "30 sec", "45 sec", "1 min", "3 min", "5 min", "10 min", "15 min", "20 min", "30 min", "45 min", "60 min"];
   const answerChoices = [5, 10, 15, 20, 25, 30, 45, 60, 90, 120];
   const optionChoices = [2, 3, 4, 5, 6];
   const providerChoices = API_PROVIDERS.map((p) => p.label);
@@ -331,7 +333,7 @@ async function openSettingsMenu(player) {
 
   const form = new ModalFormData()
     .title(uiTitle("Settings"))
-    .dropdown(`${THEME.white}${THEME.flower} Quiz interval (minutes)`, intervalChoices.map((v) => `${v}`), { defaultValueIndex: intervalIndex })
+    .dropdown(`${THEME.white}${THEME.flower} Quiz interval`, intervalLabels, { defaultValueIndex: intervalIndex })
     .dropdown(`${THEME.white}${THEME.flower} Answer time limit (seconds)`, answerChoices.map((v) => `${v}`), { defaultValueIndex: answerIndex })
     .textField(`${THEME.white}${THEME.flower} Topic (type anything)`, cfg.topic ?? FALLBACK_TOPIC)
     .dropdown(`${THEME.white}${THEME.flower} Options per question`, optionChoices.map((v) => `${v}`), { defaultValueIndex: optionIndex })
