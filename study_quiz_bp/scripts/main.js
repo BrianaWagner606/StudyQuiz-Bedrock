@@ -522,15 +522,29 @@ function applyPenalty(player, mode) {
     if (!item) {
       continue;
     }
-    player.dimension.spawnItem(item, player.location);
+    // Permanently remove the item. We intentionally do NOT spawn a pickup-able
+    // entity here, because a script-spawned item has no pickup delay and the
+    // player would instantly collect it again. Deleting the slot makes the items
+    // truly disappear and they cannot be picked back up.
     container.setItem(slot, undefined);
     dropped += 1;
   }
 
+  if (dropped > 0) {
+    // Feedback so it still feels like a penalty (sound + smoke puff), even though
+    // nothing collectible is dropped.
+    try {
+      player.playSound("random.break");
+      player.dimension.spawnParticle("minecraft:large_explosion", player.location);
+    } catch {
+      // Particle/sound are cosmetic only; ignore if unavailable.
+    }
+  }
+
   if (dropped === 0) {
-    sendPlayerMessage(player, "Penalty applied: no items to drop.");
+    sendPlayerMessage(player, "Penalty applied: no items to lose.");
   } else {
-    sendPlayerMessage(player, `Penalty applied: dropped items from ${dropped} slot(s).`);
+    sendPlayerMessage(player, `${THEME.red}Penalty: ${THEME.white}lost items from ${dropped} slot(s). ${THEME.gray}(gone for good)`);
   }
 }
 
