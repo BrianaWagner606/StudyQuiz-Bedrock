@@ -331,12 +331,12 @@ async function openSettingsMenu(player) {
 
   const form = new ModalFormData()
     .title(uiTitle("Settings"))
-    .dropdown(`${THEME.white}${THEME.flower} Quiz interval (minutes)`, intervalChoices.map((v) => `${v}`), intervalIndex)
-    .dropdown(`${THEME.white}${THEME.flower} Answer time limit (seconds)`, answerChoices.map((v) => `${v}`), answerIndex)
+    .dropdown(`${THEME.white}${THEME.flower} Quiz interval (minutes)`, intervalChoices.map((v) => `${v}`), { defaultValueIndex: intervalIndex })
+    .dropdown(`${THEME.white}${THEME.flower} Answer time limit (seconds)`, answerChoices.map((v) => `${v}`), { defaultValueIndex: answerIndex })
     .textField(`${THEME.white}${THEME.flower} Topic (type anything)`, cfg.topic ?? FALLBACK_TOPIC)
-    .dropdown(`${THEME.white}${THEME.flower} Options per question`, optionChoices.map((v) => `${v}`), optionIndex)
-    .dropdown(`${THEME.white}${THEME.flower} Penalty mode`, PENALTY_MODES.map((mode) => mode.label), penaltyIndex)
-    .dropdown(`${THEME.white}${THEME.flower} AI Provider`, providerChoices, providerIndexDefault)
+    .dropdown(`${THEME.white}${THEME.flower} Options per question`, optionChoices.map((v) => `${v}`), { defaultValueIndex: optionIndex })
+    .dropdown(`${THEME.white}${THEME.flower} Penalty mode`, PENALTY_MODES.map((mode) => mode.label), { defaultValueIndex: penaltyIndex })
+    .dropdown(`${THEME.white}${THEME.flower} AI Provider`, providerChoices, { defaultValueIndex: providerIndexDefault })
     .label(getLiveStatusLine(cfg))
     .label(`${THEME.gray}To set your API key, type in chat: ${THEME.white}!key YOUR-API-KEY`);
 
