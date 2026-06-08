@@ -320,14 +320,23 @@ async function openSettingsMenu(player) {
   const optionChoices = [2, 3, 4, 5, 6];
   const providerChoices = API_PROVIDERS.map((p) => p.label);
 
+  // Pre-select the player's currently saved values so opening Settings shows the
+  // real configuration. Without these defaults a dropdown always shows its first
+  // option, and pressing Save would silently reset everything to that first option.
+  const intervalIndex = Math.max(0, intervalChoices.indexOf(cfg.intervalMin));
+  const answerIndex = Math.max(0, answerChoices.indexOf(cfg.answerSec));
+  const optionIndex = Math.max(0, optionChoices.indexOf(cfg.optionCount));
+  const penaltyIndex = Math.max(0, PENALTY_MODES.findIndex((mode) => mode.value === cfg.penaltyMode));
+  const providerIndexDefault = Math.max(0, API_PROVIDERS.findIndex((p) => p.value === cfg.apiProvider));
+
   const form = new ModalFormData()
     .title(uiTitle("Settings"))
-    .dropdown(`${THEME.white}${THEME.flower} Quiz interval (minutes)`, intervalChoices.map((v) => `${v}`))
-    .dropdown(`${THEME.white}${THEME.flower} Answer time limit (seconds)`, answerChoices.map((v) => `${v}`))
+    .dropdown(`${THEME.white}${THEME.flower} Quiz interval (minutes)`, intervalChoices.map((v) => `${v}`), intervalIndex)
+    .dropdown(`${THEME.white}${THEME.flower} Answer time limit (seconds)`, answerChoices.map((v) => `${v}`), answerIndex)
     .textField(`${THEME.white}${THEME.flower} Topic (type anything)`, cfg.topic ?? FALLBACK_TOPIC)
-    .dropdown(`${THEME.white}${THEME.flower} Options per question`, optionChoices.map((v) => `${v}`))
-    .dropdown(`${THEME.white}${THEME.flower} Penalty mode`, PENALTY_MODES.map((mode) => mode.label))
-    .dropdown(`${THEME.white}${THEME.flower} AI Provider`, providerChoices)
+    .dropdown(`${THEME.white}${THEME.flower} Options per question`, optionChoices.map((v) => `${v}`), optionIndex)
+    .dropdown(`${THEME.white}${THEME.flower} Penalty mode`, PENALTY_MODES.map((mode) => mode.label), penaltyIndex)
+    .dropdown(`${THEME.white}${THEME.flower} AI Provider`, providerChoices, providerIndexDefault)
     .label(getLiveStatusLine(cfg))
     .label(`${THEME.gray}To set your API key, type in chat: ${THEME.white}!key YOUR-API-KEY`);
 

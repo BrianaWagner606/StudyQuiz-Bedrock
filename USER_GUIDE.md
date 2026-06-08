@@ -38,6 +38,18 @@ Every player has their **own** settings, coins, and progress.
 
 ## 3. Install on your server
 
+### 🚀 Easy way (recommended): run the installer
+1. Download and unzip **StudyQuiz-Full-Project.zip**.
+2. Double-click **`install-bds.bat`**.
+3. Paste the path to your BDS folder (the one containing `bedrock_server.exe`) and
+   press Enter.
+
+The installer copies both packs **and** sets up `permissions.json` for you
+(the step people most often miss). It then prints the two short world files to
+add. Skip to **section 4** after that — or follow the manual steps below if you
+prefer to do it by hand.
+
+### Manual way
 1. **Stop** your Bedrock server.
 2. Copy the two pack folders into your server install:
    - `study_quiz_bp` → `behavior_packs\study_quiz_bp`
@@ -59,8 +71,15 @@ Every player has their **own** settings, coins, and progress.
    ]
    ```
 
-4. Allow the network module so live AI can work. Edit `config\default\permissions.json`
-   (create it if missing) and include:
+4. **⭐ REQUIRED FOR AI — allow the network module.** This is the step people miss
+   most, and skipping it causes the **"could not make an HTTP request"** error.
+
+   In your **BDS install folder** (the one with `bedrock_server.exe`), open the file:
+   ```
+   config\default\permissions.json
+   ```
+   - If the folders/file don't exist, create them.
+   - Replace its contents with **exactly** this:
    ```json
    {
      "allowed_modules": [
@@ -71,6 +90,12 @@ Every player has their **own** settings, coins, and progress.
      ]
    }
    ```
+   > ⚠️ It must be the `config\default\permissions.json` in the **server root** —
+   > **not** the copy inside `behavior_packs\study_quiz_bp\examples\`. That example
+   > file is only a template you copy from. The two lines that matter are
+   > `@minecraft/server-net` (lets the game reach the internet/proxy) and
+   > `@minecraft/server-admin`.
+
 5. **Start** your server. In the console you should see:
    ```
    Pack Stack - [00] Study Quiz (BDS Live API) ...
@@ -225,6 +250,25 @@ live AI questions.
 - Make sure `proxy\anthropic-key.txt` contains a real key (not the example text).
 - Make sure `permissions.json` allows `@minecraft/server-net` and `@minecraft/server-admin`.
 - Check the proxy window and the server console for error messages.
+
+**"Could not make an HTTP request" in-game (most common AI problem).**
+This means the game cannot reach the AI gateway. Work through these in order:
+
+1. **Is the proxy running?** The black proxy window must be open and show
+   `Key: loaded from anthropic-key.txt`. Start it **before** the server.
+2. **Prove the proxy is reachable.** On the **same PC as the server**, open a
+   browser and go to **http://127.0.0.1:8787/health**. You should see:
+   `{"ok":true,"keyLoaded":true,"model":"..."}`.
+   If that doesn't load, the proxy isn't running (or a firewall is blocking
+   `node.exe` — allow it).
+3. **Same computer?** The proxy and the BDS server must run on the **same PC**
+   (`127.0.0.1` means "this computer").
+4. **⭐ Check `permissions.json` (the usual culprit).** If the health page works
+   but the game still errors, your server is blocking web access. Confirm the
+   file `config\default\permissions.json` exists **in your BDS root folder** and
+   lists `@minecraft/server-net` and `@minecraft/server-admin` (see **Install
+   step 4**). The copy inside the pack's `examples\` folder does **not** count —
+   it must be in `config\default\`. Save it and fully restart the server.
 
 **Players get "Topic mastered!".**
 They've mastered every available question for that topic. Switch topics in
