@@ -153,8 +153,14 @@ questions, run the small included **proxy** program. It keeps your secret API ke
 ### One-time setup
 1. Install **Node.js** (https://nodejs.org) if you don't have it.
 2. Get an API key from your AI provider (e.g. the Anthropic console).
-3. In the `proxy` folder, copy `anthropic-key.example.txt` to **`anthropic-key.txt`**
-   and paste your real key into it (one line, nothing else).
+3. **Double-click `proxy\start-proxy.bat`.** The first time, it automatically
+   creates a file named `anthropic-key.txt` and opens it in Notepad.
+4. Delete the placeholder text, paste **your own** Anthropic key (starts with
+   `sk-ant-`) on one line, save, and close Notepad.
+5. Run `start-proxy.bat` again — it should now say `Key: loaded from anthropic-key.txt`.
+
+> You never have to rename anything — the launcher makes the correctly-named file
+> for you.
 
 ### Each time you play
 1. **Start the proxy first:** double-click `proxy\start-proxy.bat`
