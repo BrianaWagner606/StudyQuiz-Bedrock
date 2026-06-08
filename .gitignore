@@ -1,0 +1,14 @@
+# --- Secrets: never commit or share these ---
+proxy/anthropic-key.txt
+proxy/*-key.txt
+!proxy/*.example.txt
+
+# --- Build output: ignore everything except the shareable add-on ---
+dist/*
+!dist/StudyQuiz.mcaddon
+
+# --- OS / editor junk ---
+Thumbs.db
+desktop.ini
+.DS_Store
+*.log

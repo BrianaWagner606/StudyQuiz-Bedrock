@@ -1,0 +1,17 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Study Quiz Resources",
+    "description": "Cute pink coin and visuals for the Study Quiz add-on.",
+    "uuid": "b2d6f3a1-9c44-4e7a-8f12-3a7e5c901d44",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 21, 80]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "c4e1a82b-5d39-4b66-9a0f-2f6b8d113e57",
+      "version": [1, 0, 0]
+    }
+  ]
+}
