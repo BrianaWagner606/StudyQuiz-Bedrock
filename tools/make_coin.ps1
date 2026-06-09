@@ -31,7 +31,7 @@ for ($r=0; $r -lt $rows.Count; $r++) {
     if ($px -ge 0 -and $px -lt 16 -and $py -ge 0 -and $py -lt 16) { $bmp.SetPixel($px,$py,$heart) }
   }
 }
-$out = 'C:\Users\bjw25\OneDrive\Desktop\MineCraftSQ_BEDROCK\study_quiz_rp\textures\items\study_coin.png'
+$out = Join-Path (Split-Path $PSScriptRoot -Parent) 'study_quiz_rp\textures\items\study_coin.png'
 $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
 Write-Output ("SAVED " + $out + " exists=" + [System.IO.File]::Exists($out))
