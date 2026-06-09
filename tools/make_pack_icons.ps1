@@ -45,6 +45,6 @@ function New-PackIcon {
     Write-Output ("SAVED " + $OutPath)
 }
 
-$root = 'C:\Users\bjw25\OneDrive\Desktop\MineCraftSQ_BEDROCK'
+$root = Split-Path $PSScriptRoot -Parent
 New-PackIcon -OutPath "$root\study_quiz_bp\pack_icon.png"
 New-PackIcon -OutPath "$root\study_quiz_rp\pack_icon.png"
