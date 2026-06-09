@@ -49,6 +49,41 @@ export function asDistinctTrimmedStrings(values) {
   return unique;
 }
 
+// Bedrock action-form buttons clip long single-line labels (the end of the text
+// gets cut off). Buttons DO honor "\n", so we wrap the label onto multiple lines
+// at word boundaries, hard-breaking any single word longer than the line width.
+export function wrapButtonLabel(text, maxLineLen = 20) {
+  const words = `${text ?? ""}`.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return "";
+  }
+  const lines = [];
+  let current = "";
+  for (let word of words) {
+    // A single word longer than a line is broken across lines so nothing clips.
+    while (word.length > maxLineLen) {
+      if (current) {
+        lines.push(current);
+        current = "";
+      }
+      lines.push(word.slice(0, maxLineLen));
+      word = word.slice(maxLineLen);
+    }
+    if (!current) {
+      current = word;
+    } else if (current.length + 1 + word.length <= maxLineLen) {
+      current += ` ${word}`;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) {
+    lines.push(current);
+  }
+  return lines.join("\n");
+}
+
 export function shuffleInPlace(array) {
   for (let i = array.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));

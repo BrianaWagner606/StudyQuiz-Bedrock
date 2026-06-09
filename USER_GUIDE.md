@@ -98,7 +98,7 @@ prefer to do it by hand.
 
 5. **Start** your server. In the console you should see:
    ```
-   Pack Stack - [00] Study Quiz (BDS Live API) ...
+   Pack Stack - [00] Study Quiz ...
    [StudyQuiz] Loaded.
    ```
 
@@ -146,7 +146,10 @@ Open the book → **Settings**:
 | Topic | The subject of your questions | general_science |
 | Options per question | Number of answer buttons | 4 |
 | **Penalty mode** | What you drop on a wrong answer: **Held item only**, **Hotbar**, or **Full inventory** | Full inventory |
-| AI Provider | Which AI service to use (if AI is connected) | Anthropic |
+
+> The AI model and provider are managed by the server (in the proxy), so they
+> aren't shown here. When AI is off or unreachable, the built-in questions are
+> used automatically.
 
 > **Note:** Players who used an older version may still have an old saved penalty
 > setting. To make wrong answers drop everything, open **Settings** and set
@@ -276,15 +279,51 @@ They've mastered every available question for that topic. Switch topics in
 
 ---
 
+## 8.5 Edit the offline questions (no AI needed)
+
+All the built-in questions live in **one file** that you edit like a list:
+
+> `study_quiz_bp/scripts/questions/bundledTopics.js`
+
+Open it in any text editor (Notepad works). The top of the file explains
+everything, but here's the gist — each question looks like this:
+
+```js
+{
+  "question": "Which planet is closest to the Sun?",
+  "options":  ["Mercury", "Venus", "Earth", "Mars"],
+  "answer":   "Mercury"
+}
+```
+
+- **"question"** — what players see.
+- **"options"** — 2 to 6 answers, each in `"quotes"`, separated by commas.
+- **"answer"** — copy **one of your options** here exactly. That's the correct one.
+- You don't need to write an `id` — it's created for you.
+- Put a comma after each question's `}` (the last one in a list can skip it).
+
+**Add a question:** copy a `{ ... }` block and paste it inside a topic's
+`[ square brackets ]`.
+
+**Add a whole topic:** copy a topic block (e.g. `general_science: [ ... ]`),
+paste it, rename it (lowercase, use `_` for spaces), and fill in questions. The
+topic name is what players type in the in-game **Topic** box.
+
+After editing, **reload the world or restart the server** to see your changes.
+If a question is typed wrong, the game simply **skips it** — it won't crash.
+(Keep the `general_science` topic; it's used as the default fallback.)
+
+---
+
 ## 9. For advanced users / customizing
 
 - **Store items & prices:** `study_quiz_bp/scripts/constants.js` → `STORE_ITEMS` and `STORE_CATEGORIES`.
 - **Defaults (interval, timer, penalty):** `study_quiz_bp/scripts/constants.js` → `DEFAULT_CONFIG`.
 - **Mastery requirement:** `MASTERY_STREAK_REQUIRED` (default 3).
-- **Penalty always applies (even Creative/keepInventory):** `DROP_PENALTY_IGNORES_GAMEMODE_AND_KEEPINVENTORY`.
+- **Turn the wrong-answer penalty on/off:** `ENABLE_WRONG_ANSWER_PENALTY` (true applies it even in Creative/keepInventory).
 - **AI endpoint the game calls:** `study_quiz_bp/scripts/userConfig.js` (points at the proxy).
 - **AI model/provider:** `proxy/server.js` → `DEFAULT_MODEL`.
-- **Built-in questions:** `study_quiz_bp/scripts/questions/`.
+- **Built-in (offline) questions:** `study_quiz_bp/scripts/questions/bundledTopics.js` (see section 8.5 for the easy how-to).
 
 Coins are also mirrored to a scoreboard objective named `study_coins` so you can
 show a live balance on a sidebar if you like.
