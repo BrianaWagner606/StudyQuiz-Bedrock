@@ -9,10 +9,9 @@ import {
   ModalFormData
 } from "@minecraft/server-ui";
 import {
-  API_PROVIDERS,
   COMMAND_OPEN_MENU,
   DEFAULT_CONFIG,
-  DROP_PENALTY_IGNORES_GAMEMODE_AND_KEEPINVENTORY,
+  ENABLE_WRONG_ANSWER_PENALTY,
   FALLBACK_TOPIC,
   MASTERY_STREAK_REQUIRED,
   PENALTY_MODES,
@@ -26,7 +25,7 @@ import { PlayerStateStore } from "./state.js";
 import { ApiProvider } from "./providers/ApiProvider.js";
 import { BundledProvider } from "./providers/BundledProvider.js";
 import { getBundledTopicNames } from "./questions/bundledTopics.js";
-import { nowMs, shuffleInPlace } from "./utils.js";
+import { nowMs, shuffleInPlace, wrapButtonLabel } from "./utils.js";
 
 const bundledProvider = new BundledProvider();
 const apiProvider = new ApiProvider(bundledProvider);
@@ -37,27 +36,16 @@ const askedSessionIdsByPlayer = new Map();
 const pendingPromptByPlayer = new Map();
 const lastPromptMsByPlayer = new Map();
 const liveUnavailableNotifiedByPlayer = new Set();
-const apiSetupReminderByPlayer = new Set();
 const lastFetchIssueByPlayerAndTopic = new Map();
 const lastMenuOpenMsByPlayer = new Map();
 let coinObjective = null;
+// Whether the in-chat "!study" command actually hooked. On some BDS runtimes the
+// chat event isn't available, so we tell players to use the book instead.
+let chatCommandAvailable = false;
 
 const SETTINGS_ITEM_ID = "minecraft:book";
 const SETTINGS_ITEM_NAME = "Study Settings";
 const COIN_ITEM_ID = "studyquiz:coin";
-
-function getProviderMeta(providerValue) {
-  return API_PROVIDERS.find((p) => p.value === providerValue) ?? API_PROVIDERS[0];
-}
-
-// Guess the provider from the key's prefix so players only need to paste their key.
-function inferProviderFromKey(apiKey) {
-  const key = `${apiKey ?? ""}`.trim();
-  if (key.startsWith("sk-ant-")) return "anthropic";
-  if (key.startsWith("sk-or-v1-")) return "openrouter";
-  if (key.startsWith("sk-")) return "openai";
-  return "";
-}
 
 function isPlayerUsable(player) {
   if (!player) {
@@ -167,10 +155,12 @@ async function countdownBeforeQuiz(player) {
 }
 
 function getLiveStatusLine(config) {
-  const provider = getProviderMeta(config?.apiProvider).label;
+  // AI is server-managed via the local proxy. When it is off/unreachable the
+  // game automatically uses the built-in questions, so we never tell players to
+  // set their own key.
   return hasPlayerLiveConfig(config)
-    ? `${THEME.pink}${THEME.sparkle} ${THEME.green}Connected ${THEME.gray}(${provider})`
-    : `${THEME.pink}${THEME.sparkle} ${THEME.gray}No AI key yet. Type !key in chat.`;
+    ? `${THEME.pink}${THEME.sparkle} ${THEME.green}AI questions: on ${THEME.gray}(server proxy)`
+    : `${THEME.pink}${THEME.sparkle} ${THEME.gray}AI questions: off ${THEME.gray}(using built-in questions)`;
 }
 
 function sendPlayerMessage(player, message) {
@@ -307,12 +297,6 @@ function ensureSettingsItem(player) {
   }
 }
 
-async function promptForPlayerApiConfig(player, config) {
-  sendPlayerMessage(player, "To use live AI quizzes, type in chat:  !key YOUR-API-KEY");
-  sendPlayerMessage(player, "Your key is hidden from other players. Then try the quiz again.");
-  return null;
-}
-
 async function openSettingsMenu(player) {
   const cfg = state.getConfig(player, getAvailableTopics());
   // Interval values are in minutes; sub-minute options use fractions.
@@ -320,7 +304,6 @@ async function openSettingsMenu(player) {
   const intervalLabels = ["15 sec", "30 sec", "45 sec", "1 min", "3 min", "5 min", "10 min", "15 min", "20 min", "30 min", "45 min", "60 min"];
   const answerChoices = [5, 10, 15, 20, 25, 30, 45, 60, 90, 120];
   const optionChoices = [2, 3, 4, 5, 6];
-  const providerChoices = API_PROVIDERS.map((p) => p.label);
 
   // Pre-select the player's currently saved values so opening Settings shows the
   // real configuration. Without these defaults a dropdown always shows its first
@@ -329,8 +312,9 @@ async function openSettingsMenu(player) {
   const answerIndex = Math.max(0, answerChoices.indexOf(cfg.answerSec));
   const optionIndex = Math.max(0, optionChoices.indexOf(cfg.optionCount));
   const penaltyIndex = Math.max(0, PENALTY_MODES.findIndex((mode) => mode.value === cfg.penaltyMode));
-  const providerIndexDefault = Math.max(0, API_PROVIDERS.findIndex((p) => p.value === cfg.apiProvider));
 
+  // AI provider/endpoint/model are managed by the server proxy, so Settings only
+  // exposes the quiz-behavior options a player can actually control.
   const form = new ModalFormData()
     .title(uiTitle("Settings"))
     .dropdown(`${THEME.white}${THEME.flower} Quiz interval`, intervalLabels, { defaultValueIndex: intervalIndex })
@@ -338,9 +322,7 @@ async function openSettingsMenu(player) {
     .textField(`${THEME.white}${THEME.flower} Topic (type anything)`, cfg.topic ?? FALLBACK_TOPIC)
     .dropdown(`${THEME.white}${THEME.flower} Options per question`, optionChoices.map((v) => `${v}`), { defaultValueIndex: optionIndex })
     .dropdown(`${THEME.white}${THEME.flower} Penalty mode`, PENALTY_MODES.map((mode) => mode.label), { defaultValueIndex: penaltyIndex })
-    .dropdown(`${THEME.white}${THEME.flower} AI Provider`, providerChoices, { defaultValueIndex: providerIndexDefault })
-    .label(getLiveStatusLine(cfg))
-    .label(`${THEME.gray}To set your API key, type in chat: ${THEME.white}!key YOUR-API-KEY`);
+    .label(getLiveStatusLine(cfg));
 
   const result = await form.show(player);
   if (result.canceled) {
@@ -348,24 +330,19 @@ async function openSettingsMenu(player) {
   }
 
   const values = result.formValues;
-  if (!values || values.length < 6) {
+  if (!values || values.length < 5) {
     return;
   }
 
   const topicInput = `${values[2] ?? ""}`.trim();
-  const providerIdx = Math.round(values[5]);
-  const selectedProvider = API_PROVIDERS[providerIdx] ?? API_PROVIDERS[0];
 
   updatePlayerConfig(player, (prev) => ({
+    ...prev,
     intervalMin: intervalChoices[Math.round(values[0])] ?? cfg.intervalMin,
     answerSec: answerChoices[Math.round(values[1])] ?? cfg.answerSec,
     topic: topicInput.length > 0 ? topicInput : cfg.topic,
     optionCount: optionChoices[Math.round(values[3])] ?? cfg.optionCount,
-    penaltyMode: PENALTY_MODES[Math.round(values[4])]?.value ?? cfg.penaltyMode,
-    apiProvider: selectedProvider.value,
-    apiEndpoint: selectedProvider.defaultEndpoint,
-    apiModel: selectedProvider.defaultModel,
-    apiKey: prev.apiKey
+    penaltyMode: PENALTY_MODES[Math.round(values[4])]?.value ?? cfg.penaltyMode
   }));
 
   sendPlayerMessage(player, "Settings saved.");
@@ -508,8 +485,7 @@ function getPenaltySlots(player, mode) {
 }
 
 function applyPenalty(player, mode) {
-  if (!DROP_PENALTY_IGNORES_GAMEMODE_AND_KEEPINVENTORY) {
-    sendPlayerMessage(player, "Penalty drop is disabled by server config.");
+  if (!ENABLE_WRONG_ANSWER_PENALTY) {
     return;
   }
 
@@ -594,7 +570,7 @@ async function fetchPoolQuestions(player, config, topic, masteredIds) {
     const key = getPlayerKey(player);
     if (!liveUnavailableNotifiedByPlayer.has(key)) {
       liveUnavailableNotifiedByPlayer.add(key);
-      sendPlayerMessage(player, "Live questions unavailable. Check your API key in Settings.");
+      sendPlayerMessage(player, "AI questions are off right now - using built-in questions.");
     }
   }
 
@@ -606,16 +582,9 @@ async function selectQuestionForPlayer(player, config) {
   const masteredIds = state.getMasteredIds(player, topic);
   const pool = getTopicPool(player, topic);
 
-  // When using live custom topics, only serve API-generated items.
-  if (hasPlayerLiveConfig(config) && topic !== FALLBACK_TOPIC) {
-    for (let i = pool.length - 1; i >= 0; i -= 1) {
-      const source = `${pool[i]?.__source ?? ""}`.toLowerCase();
-      if (source !== "api") {
-        pool.splice(i, 1);
-      }
-    }
-  }
-
+  // Built-in (bundled) questions are always eligible, so any topic you add in
+  // bundledTopics.js works whether or not the AI proxy is reachable. When the
+  // AI is available it simply adds more questions to the same pool.
   if (pool.filter((q) => !masteredIds.has(q.id)).length === 0) {
     await fetchPoolQuestions(player, config, topic, masteredIds);
   }
@@ -671,25 +640,10 @@ async function askQuestion(player, triggerSource) {
     return;
   }
 
-  let config = state.getConfig(player, getAvailableTopics());
+  const config = state.getConfig(player, getAvailableTopics());
 
-  if (!hasPlayerLiveConfig(config)) {
-    if (triggerSource === "interval") {
-      const key = getPlayerKey(player);
-      if (!apiSetupReminderByPlayer.has(key)) {
-        apiSetupReminderByPlayer.add(key);
-        sendPlayerMessage(player, "Type !key YOUR-API-KEY in chat to set your AI key.");
-      }
-      return;
-    }
-
-    const updated = await promptForPlayerApiConfig(player, config);
-    if (!updated) {
-      return;
-    }
-    config = updated;
-  }
-
+  // No AI gate here: if the proxy is unreachable (or off), the provider falls
+  // back to the built-in questions, so quizzes keep working offline.
   const question = await selectQuestionForPlayer(player, config);
   if (!question) {
     if (hasPlayerLiveConfig(config) && config.topic !== FALLBACK_TOPIC) {
@@ -720,7 +674,7 @@ async function askQuestion(player, triggerSource) {
     .title(uiTitle(config.topic))
     .body(`${THEME.white}${question.question}\n${uiDivider()}`);
   for (const option of options) {
-    form.button(`${THEME.white}${option.text}`);
+    form.button(`${THEME.white}${wrapButtonLabel(option.text)}`);
   }
 
   const playerKey = getPlayerKey(player);
@@ -826,13 +780,10 @@ function setupJoinSync() {
     state.setConfig(player, cfg);
     syncCoinScoreboard(player);
     ensureSettingsItem(player);
-    if (hasPlayerLiveConfig(cfg)) {
-      player.sendMessage(`${THEME.bold}${THEME.pink}${THEME.flower} Welcome to Study Quiz ${THEME.flower}`);
-      sendPlayerMessage(player, `${THEME.white}Type ${THEME.pink}!study${THEME.white} to open the cute quiz menu!`);
-    } else {
-      player.sendMessage(`${THEME.bold}${THEME.pink}${THEME.flower} Welcome to Study Quiz ${THEME.flower}`);
-      sendPlayerMessage(player, `${THEME.white}To connect AI, type ${THEME.pink}!key YOUR-API-KEY${THEME.white} in chat.`);
-      sendPlayerMessage(player, `${THEME.white}Then type ${THEME.pink}!study${THEME.white} to play. (Your key stays hidden!)`);
+    player.sendMessage(`${THEME.bold}${THEME.pink}${THEME.flower} Welcome to Study Quiz ${THEME.flower}`);
+    sendPlayerMessage(player, `${THEME.white}Hold the ${THEME.pink}Study Settings ${THEME.white}book and ${THEME.pink}right-click/use ${THEME.white}it to open the cute quiz menu!`);
+    if (chatCommandAvailable) {
+      sendPlayerMessage(player, `${THEME.white}Or just type ${THEME.pink}!study${THEME.white} in chat.`);
     }
   });
 }
@@ -908,47 +859,6 @@ function setupChatCommand() {
     const raw = `${rawMessage ?? ""}`.trim();
     const lower = raw.toLowerCase();
 
-    // !key <your full api key> — set your own key via chat (no length limit, hidden from others).
-    if (lower.startsWith("!key")) {
-      const key = raw.slice(4).replace(/\s+/g, "").trim();
-      system.run(() => {
-        if (!key) {
-          sendPlayerMessage(player, "Usage: !key <your-api-key>  (paste your full key after !key)");
-          return;
-        }
-        const inferred = inferProviderFromKey(key);
-        const meta = inferred ? getProviderMeta(inferred) : null;
-        const next = updatePlayerConfig(player, (prev) => ({
-          ...prev,
-          apiKey: key,
-          ...(meta ? { apiProvider: meta.value, apiEndpoint: meta.defaultEndpoint, apiModel: meta.defaultModel } : {})
-        }));
-        sendPlayerMessage(player, `API key saved (length ${key.length}). Provider: ${getProviderMeta(next.apiProvider).label}.`);
-        sendPlayerMessage(player, "Type !study to open the quiz menu. (Use !provider to change provider.)");
-      });
-      return true;
-    }
-
-    // !provider <name> — switch provider.
-    if (lower.startsWith("!provider")) {
-      const name = lower.slice(9).trim();
-      system.run(() => {
-        const meta = API_PROVIDERS.find((p) => p.value === name || p.label.toLowerCase() === name);
-        if (!meta) {
-          sendPlayerMessage(player, `Unknown provider. Options: ${API_PROVIDERS.map((p) => p.value).join(", ")}.`);
-          return;
-        }
-        updatePlayerConfig(player, (prev) => ({
-          ...prev,
-          apiProvider: meta.value,
-          apiEndpoint: meta.defaultEndpoint,
-          apiModel: meta.defaultModel
-        }));
-        sendPlayerMessage(player, `Provider set to ${meta.label}.`);
-      });
-      return true;
-    }
-
     if (lower === COMMAND_OPEN_MENU) {
       system.run(async () => {
         await openMainMenu(player);
@@ -966,6 +876,7 @@ function setupChatCommand() {
         event.cancel = true;
       }
     });
+    chatCommandAvailable = true;
     return;
   }
 
@@ -976,10 +887,11 @@ function setupChatCommand() {
         event.cancel = true;
       }
     });
+    chatCommandAvailable = true;
     return;
   }
 
-  console.warn("[StudyQuiz] Chat command listener unavailable on this runtime. Use /scriptevent study:open.");
+  console.warn("[StudyQuiz] Chat command listener unavailable on this runtime. Players open the menu with the Study Settings book or /scriptevent study:open.");
 }
 
 function setupScriptEventCommand() {
@@ -1084,7 +996,10 @@ function bootstrap() {
       console.warn(`[StudyQuiz] Scoreboard objective creation failed: ${error}`);
     }
 
-    console.warn(`[StudyQuiz] Loaded. Command: ${COMMAND_OPEN_MENU}. Default topic fallback: ${FALLBACK_TOPIC}.`);
+    const opener = chatCommandAvailable
+      ? `${COMMAND_OPEN_MENU} or the Study Settings book`
+      : `the Study Settings book or /scriptevent study:open`;
+    console.warn(`[StudyQuiz] Loaded. Open the menu with ${opener}. Default topic fallback: ${FALLBACK_TOPIC}.`);
   }, 20);
 }
 

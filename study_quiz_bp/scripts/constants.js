@@ -105,8 +105,11 @@ export const THEME = {
   star: "\u2740"         // ❀
 };
 
-// Set to false if you want to skip penalties in Creative/keepInventory scenarios.
-export const DROP_PENALTY_IGNORES_GAMEMODE_AND_KEEPINVENTORY = true;
+// Master on/off switch for the wrong-answer penalty. When true, a wrong answer
+// removes items per the player's penalty mode (held / hotbar / full inventory),
+// regardless of gamemode or the keepInventory gamerule. Set to false to turn
+// penalties off entirely.
+export const ENABLE_WRONG_ANSWER_PENALTY = true;
 
 export const FALLBACK_TOPIC = "general_science";
 export const REFRESH_BATCH_SIZE = 8;
