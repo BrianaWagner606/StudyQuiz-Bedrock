@@ -29,6 +29,21 @@ Every player has their **own** settings, coins, and progress.
 > **AI-powered** — start the proxy (section 7) for endless, level-tuned questions.
 > With AI off they fall back to whatever built-in questions exist for that pack.
 
+### 🧑‍🏫 Teacher quickstart
+
+Running this for a class? Three steps:
+
+1. **Make yourself the teacher** — from the server console (or as an operator):
+   `tag "YourName" add sq_admin`. You'll now see a **Teacher** button in the menu.
+2. **Assign a lesson** — Teacher → *Assign lesson to class*: pick a curriculum pack
+   (or free topic) + difficulty, optionally **lock** it so students can't change it.
+   Everyone online switches to it.
+3. **Track progress** — Teacher → *Class roster* for live answered/accuracy/mastery,
+   or *Reset a student* for a fresh start.
+
+Details in [section 9.5](#95-teacher-tools). For a browser dashboard and
+cross-server progress, deploy the optional cloud backend (`cloud/README.md`).
+
 ---
 
 ## 2. Requirements
