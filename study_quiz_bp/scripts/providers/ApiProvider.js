@@ -6,9 +6,14 @@ import {
 } from "@minecraft/server-net";
 import { QuestionProvider } from "./QuestionProvider.js";
 import { asDistinctTrimmedStrings, toStableQuestionId } from "../utils.js";
-import { API_PROVIDERS, PLAYER_API_ENDPOINT, PLAYER_API_MODEL } from "../constants.js";
+import { API_PROVIDERS, DIFFICULTY_TIERS, PLAYER_API_ENDPOINT, PLAYER_API_MODEL } from "../constants.js";
 
 const ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages";
+
+function difficultyNote(difficulty) {
+  const tier = DIFFICULTY_TIERS.find((t) => t.value === difficulty);
+  return tier ? tier.note : "";
+}
 
 function inferProviderFromKey(apiKey) {
   const key = `${apiKey ?? ""}`.trim().toLowerCase();
@@ -148,6 +153,36 @@ function parseQuestionsFromApiText(rawText) {
   return null;
 }
 
+// Pull plain text out of either an OpenAI-shaped or Anthropic-shaped response.
+// Used for the topic recap (free text), unlike questions which are JSON.
+function extractTextFromApiResponse(rawText) {
+  const asString = `${rawText ?? ""}`.trim();
+  if (!asString.length) {
+    return null;
+  }
+
+  try {
+    const json = JSON.parse(asString);
+
+    const anthropicText = Array.isArray(json?.content)
+      ? json.content.filter((p) => p?.type === "text").map((p) => `${p.text ?? ""}`).join("").trim()
+      : "";
+    if (anthropicText) {
+      return anthropicText;
+    }
+
+    const openAiText = `${json?.choices?.[0]?.message?.content ?? ""}`.trim();
+    if (openAiText) {
+      return openAiText;
+    }
+  } catch {
+    // Not JSON - treat the raw body as the text (best effort).
+    return asString.slice(0, 600);
+  }
+
+  return null;
+}
+
 export class ApiProvider extends QuestionProvider {
   constructor(fallbackProvider) {
     super();
@@ -208,19 +243,32 @@ export class ApiProvider extends QuestionProvider {
     return endpoint.includes("anthropic.com") || key.startsWith("sk-ant-");
   }
 
-  buildPrompt(topic, optionCount, avoidTexts, variety) {
+  buildPrompt(topic, optionCount, avoidTexts, variety, meta = {}) {
+    // `meta.subject` (when present) is a richer, human-readable subject from a
+    // curriculum pack, e.g. "the Python programming language". `meta.focus` is
+    // the pack's rotating sub-topic list and takes priority over the generic
+    // `variety` angle. `meta.difficulty` tunes the requested level.
+    const subject = `${meta.subject ?? ""}`.trim() || topic;
     const lines = [
       "Return ONLY a JSON array with no markdown and no extra text.",
       "Each array item must match exactly:",
       '{ "question": "...", "options": ["...","...","...","..."], "answerIndex": 0 }',
-      `Topic: ${topic}`,
+      `Topic: ${subject}`,
       `Generate 10 questions. Use exactly ${optionCount} distinct options for each question.`,
       "answerIndex must be the integer index of the correct option.",
       "Every question must be NEW and clearly different in wording AND subject matter from any listed below.",
       "Explore less-common sub-topics, deeper details, and applied/scenario angles rather than repeating the most obvious facts."
     ];
 
-    if (variety) {
+    const note = difficultyNote(meta.difficulty);
+    if (note) {
+      lines.push(`Difficulty: ${note}.`);
+    }
+
+    const focus = `${meta.focus ?? ""}`.trim();
+    if (focus) {
+      lines.push(`Focus topics this batch: ${focus}.`);
+    } else if (variety) {
       lines.push(`Focus this batch on: ${variety}.`);
     }
 
@@ -237,8 +285,8 @@ export class ApiProvider extends QuestionProvider {
     return lines.join("\n");
   }
 
-  buildAnthropicRequest(config, topic, optionCount, avoidTexts, variety) {
-    const prompt = this.buildPrompt(topic, optionCount, avoidTexts, variety);
+  buildAnthropicRequest(config, topic, optionCount, avoidTexts, variety, meta) {
+    const prompt = this.buildPrompt(topic, optionCount, avoidTexts, variety, meta);
 
     const payload = {
       model: config.model,
@@ -265,8 +313,8 @@ export class ApiProvider extends QuestionProvider {
     return request;
   }
 
-  buildOpenAiRequest(config, topic, optionCount, avoidTexts, variety) {
-    const prompt = this.buildPrompt(topic, optionCount, avoidTexts, variety);
+  buildOpenAiRequest(config, topic, optionCount, avoidTexts, variety, meta) {
+    const prompt = this.buildPrompt(topic, optionCount, avoidTexts, variety, meta);
 
     const payload = {
       model: config.model,
@@ -293,10 +341,10 @@ export class ApiProvider extends QuestionProvider {
     return request;
   }
 
-  async callApi(config, topic, optionCount, avoidTexts, variety) {
+  async callApi(config, topic, optionCount, avoidTexts, variety, meta) {
     const request = this.shouldUseAnthropic(config)
-      ? this.buildAnthropicRequest(config, topic, optionCount, avoidTexts, variety)
-      : this.buildOpenAiRequest(config, topic, optionCount, avoidTexts, variety);
+      ? this.buildAnthropicRequest(config, topic, optionCount, avoidTexts, variety, meta)
+      : this.buildOpenAiRequest(config, topic, optionCount, avoidTexts, variety, meta);
 
     const response = await http.request(request);
     const bodyText = response?.body ?? "";
@@ -309,7 +357,72 @@ export class ApiProvider extends QuestionProvider {
     };
   }
 
-  async getQuestions(topic, optionCount, excludeIds = new Set(), overrideConfig = null, avoidTexts = []) {
+  // ---- Topic recap (free-text), shown when a player exits a quiz ----
+  buildSummaryRequest(config, topic) {
+    const system = "You are a friendly study buddy who writes brief, accurate topic recaps for students.";
+    const userPrompt = [
+      `Write a short study recap of the topic: ${topic}.`,
+      "2 to 4 sentences. Plain text only - no markdown, headings, bullet points, or emoji.",
+      "Focus on the most important facts a student should remember."
+    ].join("\n");
+
+    if (this.shouldUseAnthropic(config)) {
+      const payload = {
+        model: config.model,
+        max_tokens: 400,
+        temperature: 0.4,
+        system,
+        messages: [{ role: "user", content: userPrompt }]
+      };
+      const request = new HttpRequest(config.endpoint || ANTHROPIC_ENDPOINT);
+      request.method = HttpRequestMethod.Post;
+      request.headers = [
+        new HttpHeader("Content-Type", "application/json"),
+        new HttpHeader("x-api-key", `${config.apiKey ?? ""}`),
+        new HttpHeader("anthropic-version", "2023-06-01")
+      ];
+      request.body = JSON.stringify(payload);
+      return request;
+    }
+
+    const payload = {
+      model: config.model,
+      temperature: 0.4,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: userPrompt }
+      ]
+    };
+    const request = new HttpRequest(config.endpoint);
+    request.method = HttpRequestMethod.Post;
+    request.headers = [
+      new HttpHeader("Content-Type", "application/json"),
+      new HttpHeader("Authorization", `Bearer ${config.apiKey}`)
+    ];
+    request.body = JSON.stringify(payload);
+    return request;
+  }
+
+  async getSummary(topic, overrideConfig = null) {
+    const config = this.resolveConfig(overrideConfig);
+    if (!config) {
+      return null;
+    }
+
+    try {
+      const request = this.buildSummaryRequest(config, topic);
+      const response = await http.request(request);
+      if ((response?.status ?? -1) < 200 || response.status >= 300) {
+        return null;
+      }
+      return extractTextFromApiResponse(response?.body ?? "");
+    } catch (error) {
+      console.warn(`[StudyQuiz] Topic summary request failed: ${error}`);
+      return null;
+    }
+  }
+
+  async getQuestions(topic, optionCount, excludeIds = new Set(), overrideConfig = null, avoidTexts = [], meta = {}) {
     const config = this.resolveConfig(overrideConfig);
     if (!config) {
       const fallback = await this.fallbackProvider.getQuestions(topic, optionCount, excludeIds);
@@ -336,7 +449,7 @@ export class ApiProvider extends QuestionProvider {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         const variety = VARIETY_ANGLES[(angleBase + attempt) % VARIETY_ANGLES.length];
-        const result = await this.callApi(config, topic, optionCount, avoidTexts, variety);
+        const result = await this.callApi(config, topic, optionCount, avoidTexts, variety, meta);
         if (result.status < 200 || result.status >= 300) {
           finalError = `http_${result.status}${result.errorMessage ? `:${result.errorMessage}` : ""}`;
           continue;

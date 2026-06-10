@@ -1,0 +1,10 @@
+# Terraform state & local artifacts
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+.build/
+
+# Secrets — never commit
+terraform.tfvars
+*.auto.tfvars

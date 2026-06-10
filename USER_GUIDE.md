@@ -17,10 +17,17 @@ and can cover any subject you want.
 - 💖 **Pink Study Coins** — a correct answer drops a cute pink coin into your inventory.
 - 🛍️ **Store** — spend coins on food, materials, and premium items, sorted into categories.
 - ⚠️ **Wrong-answer penalty** — get it wrong and you drop items (configurable: held item, hotbar, or full inventory — coins included).
-- 🏆 **Mastery & stats** — answer the same question right 3 times to "master" it; track progress per topic.
+- 🏆 **Mastery & stats** — answer the same question right 3 times to "master" it; track progress, answered/correct counts, and accuracy per topic.
+- 📚 **Curriculum packs** — pick a ready-made study track (e.g. Cloud & IaC, DevOps & SRE, AI/ML, Security, Data Engineering, Programming Languages, System Design, CS Fundamentals) instead of typing a topic.
+- 🎚️ **Difficulty tiers** — foundational, associate, pro, or a mix; the AI tunes questions to the level you choose.
+- 🧑‍🏫 **Teacher tools** — a tagged teacher can assign one lesson to the whole class, lock the topic/difficulty, see a class roster, and reset a student.
 - 🤖 **Optional live AI** — connect an AI model for endless, on-topic questions. Falls back to built-in questions automatically if AI is off.
 
 Every player has their **own** settings, coins, and progress.
+
+> **Note on curriculum packs:** the tech packs are deep and broad, so they are
+> **AI-powered** — start the proxy (section 7) for endless, level-tuned questions.
+> With AI off they fall back to whatever built-in questions exist for that pack.
 
 ---
 
@@ -114,10 +121,12 @@ You get a **Study Settings book** in your inventory automatically. **Use (hold/r
 > If you don't have the book, a server operator can run `/scriptevent study:open` to open the menu, or `/give @s book` and rename interactions will re-grant it on next join.
 
 ### Main menu
-- **Take a quiz now** — start a question immediately.
-- **Store** — browse categories and spend coins.
-- **My Stats** — see your coin balance and mastered topics.
+- **Take a Quiz** — start a question immediately.
+- **Curriculum** — browse the study packs and start a drill (pick difficulty, and a language for the Programming Languages pack).
 - **Settings** — adjust your personal options.
+- **Store** — browse categories and spend coins.
+- **My Stats** — see your coin balance, answered/correct/accuracy, and mastered topics.
+- **Teacher** — *(only shown to players with the `sq_admin` tag)* class tools; see section 9.5.
 
 ### Answering questions
 - A short **3-2-1 countdown** plays, then the question appears with answer buttons.
@@ -143,9 +152,15 @@ Open the book → **Settings**:
 | --- | --- | --- |
 | Quiz interval | How often a quiz pops up (15 sec up to 60 min) | 5 min |
 | Answer time limit (seconds) | Time allowed per question | 25 |
-| Topic | The subject of your questions | general_science |
+| Topic | The subject of your questions (type anything; leave blank to keep a selected Curriculum pack) | general_science |
+| Difficulty | Foundational / Associate / Pro / Mixed — tunes AI questions | Mixed |
 | Options per question | Number of answer buttons | 4 |
 | **Penalty mode** | What you drop on a wrong answer: **Held item only**, **Hotbar**, or **Full inventory** | Full inventory |
+
+> When a **Curriculum pack** is active, the Topic box is blank and the pack is
+> named above it — type a topic to switch back to free study, or pick another
+> pack from the **Curriculum** menu. If a teacher has **locked** the lesson, the
+> Topic and Difficulty controls are hidden (the teacher controls them).
 
 > The AI model and provider are managed by the server (in the proxy), so they
 > aren't shown here. When AI is off or unreachable, the built-in questions are
@@ -315,6 +330,56 @@ If a question is typed wrong, the game simply **skips it** — it won't crash.
 
 ---
 
+## 8.6 Curriculum packs
+
+Open the book → **Curriculum** to browse ready-made study tracks instead of
+typing a topic. Pick a pack to see its modules and certification targets, then
+**Start drill**:
+
+- Choose a **difficulty** (Foundational / Associate / Pro / Mixed).
+- For the **Programming Languages** pack, also choose a **language** (Python,
+  Java, Go, C#/.NET, TypeScript, JavaScript, Rust, Swift, Kotlin). Each language
+  tracks its own mastery.
+
+The pack's name and a rotating set of its sub-topics are sent to the AI along
+with your difficulty, so questions stay on-track, varied, and at the right level.
+These packs are **AI-powered** — start the proxy (section 7) for the full
+experience.
+
+**Add or edit packs:** they live in
+`study_quiz_bp/scripts/questions/curriculum.js`. Copy an area block, give it a
+unique `id`/`code`, and fill in its `modules` + `subtopics` (the sub-topics are
+what the generator rotates through).
+
+---
+
+## 9.5 Teacher tools
+
+Any player **tagged `sq_admin`** sees an extra **Teacher** button on the main
+menu. Grant the tag from the server console or as an operator:
+
+```
+/tag "PlayerName" add sq_admin
+```
+
+The Teacher menu has:
+
+- **Assign lesson to class** — pick a curriculum pack (or type a free topic),
+  set the difficulty, optionally a language, and choose whether to **lock** it.
+  Every online player is switched to that lesson. If **locked**, students can't
+  change the Topic/Difficulty themselves (those controls are hidden in Settings).
+- **Class roster** — every online player's answered count, accuracy, total
+  mastered, and coin balance at a glance.
+- **Reset a student** — wipe a student's mastery, streaks, and stats (their coins
+  are kept, since coins are real items). Confirmation required.
+- **Clear class lesson** — remove the assignment so students study their own
+  picks again.
+
+> The class assignment is stored on the **world**, so it persists across
+> restarts until you clear it.
+
+---
+
 ## 9. For advanced users / customizing
 
 - **Store items & prices:** `study_quiz_bp/scripts/constants.js` → `STORE_ITEMS` and `STORE_CATEGORIES`.
@@ -324,6 +389,9 @@ If a question is typed wrong, the game simply **skips it** — it won't crash.
 - **AI endpoint the game calls:** `study_quiz_bp/scripts/userConfig.js` (points at the proxy).
 - **AI model/provider:** `proxy/server.js` → `DEFAULT_MODEL`.
 - **Built-in (offline) questions:** `study_quiz_bp/scripts/questions/bundledTopics.js` (see section 8.5 for the easy how-to).
+- **Curriculum packs:** `study_quiz_bp/scripts/questions/curriculum.js` (areas, modules, sub-topics, languages).
+- **Difficulty tiers:** `study_quiz_bp/scripts/constants.js` → `DIFFICULTY_TIERS`.
+- **Teacher tag:** `study_quiz_bp/scripts/constants.js` → `ADMIN_TAG` (default `sq_admin`).
 
 Coins are also mirrored to a scoreboard objective named `study_coins` so you can
 show a live balance on a sidebar if you like.

@@ -15,7 +15,10 @@ any-subject questions.
 - Collectible **pink Study Coin** item (real inventory item)
 - Multi-category **Store** (Food / Materials / Premium items)
 - Configurable wrong-answer penalty (held item / hotbar / full inventory)
-- Per-player settings, coins, mastery & stats
+- Per-player settings, coins, mastery, accuracy & stats
+- **Curriculum packs** — ready-made tech tracks (Cloud/IaC, DevOps/SRE, AI-ML, Security, Data, Programming Languages, System Design, CS Fundamentals)
+- **Difficulty tiers** — foundational / associate / pro / mixed, fed into the AI
+- **Teacher tools** (tag a player `sq_admin`) — assign a lesson to the whole class, lock topic/difficulty, view a class roster, reset a student
 - Optional AI-generated questions via a secure local gateway
 
 ---
@@ -36,6 +39,7 @@ any-subject questions.
 study_quiz_bp/      Behavior pack (game logic, scripts, coin item)
 study_quiz_rp/      Resource pack (pink coin texture)
 proxy/              Optional local AI gateway (keeps your API key out of the game)
+cloud/              Optional AWS backend (serverless gateway, cross-server progress, teacher dashboard, analytics)
 tools/              Dev scripts (texture & icon generators)
 dist/               Packaged add-on for sharing (.mcaddon)
 USER_GUIDE.md       Full setup + how-to-play guide
@@ -43,8 +47,22 @@ USER_GUIDE.md       Full setup + how-to-play guide
 
 ---
 
+## ☁️ Optional cloud backend
+Want it to scale past one PC? The [`cloud/`](cloud/) folder has a Terraform-deployed
+**AWS** backend: a serverless AI gateway (Lambda + API Gateway, key in Secrets
+Manager), a shared **DynamoDB** question cache, **cross-server progress +
+leaderboard**, a **teacher dashboard** (S3 + CloudFront), and **analytics** (S3 +
+Athena). It's optional — the add-on runs fully local without it. See
+[cloud/README.md](cloud/README.md).
+
 ## 🔒 Security note
-Your AI API key lives **only** in `proxy/anthropic-key.txt`
+Your AI API key lives **only** in `proxy/anthropic-key.txt` (local) or **AWS
+Secrets Manager** (cloud) — never in a pack file.
+
+**Publishing this on GitHub?** Read [SECURITY.md](SECURITY.md) first. Short
+version: ship code, not secrets — others run their own proxy/backend with their
+own key ("Bring Your Own"). Enable the secret guard once per clone with
+`git config core.hooksPath .githooks`.
 
 ---
 
