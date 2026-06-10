@@ -1,0 +1,29 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+
+region      = "us-east-1"
+name_prefix = "studyquiz"
+
+# --- Model provider ---
+# "anthropic": set anthropic_api_key below.
+# "bedrock":   leave the key blank; make sure Claude is enabled in Bedrock for your region.
+upstream = "anthropic"
+
+# Required only when upstream = "anthropic". Paste your real key here (it starts
+# with s-k-hyphen-a-n-t). Leave blank for bedrock. This file is gitignored.
+anthropic_api_key = ""
+
+# --- Cost / abuse guardrails (recommended) ---
+# Set an email to get a monthly spend alert (your safety net if a token leaks).
+budget_alert_email = ""
+budget_limit_usd   = 10
+
+# Requests/second caps across the whole API.
+throttle_rate_limit  = 5
+throttle_burst_limit = 10
+
+# Optional overrides:
+# default_model     = "claude-haiku-4-5-20251001"
+# bedrock_model_id  = "anthropic.claude-3-5-haiku-20241022-v1:0"
+# cache_ttl_seconds = 86400
+# prewarm_enabled   = true
+# prewarm_schedule  = "rate(6 hours)"

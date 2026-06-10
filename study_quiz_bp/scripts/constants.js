@@ -6,11 +6,30 @@ export const DEFAULT_CONFIG = {
   topic: "general_science",
   optionCount: 4,
   penaltyMode: "inventory",
+  difficulty: "mixed",
+  curriculumId: "",
+  lang: "",
   apiProvider: "anthropic",
   apiEndpoint: "",
   apiModel: "",
   apiKey: ""
 };
+
+// Difficulty tiers (ported from the Field Console). `note` is the phrasing fed
+// to the AI prompt so generated questions match the requested level.
+export const DIFFICULTY_TIERS = [
+  { value: "foundational", label: "Foundational", note: "foundational / entry-level difficulty" },
+  { value: "associate", label: "Associate", note: "associate / mid-level practitioner difficulty" },
+  { value: "pro", label: "Pro", note: "professional / advanced difficulty" },
+  { value: "mixed", label: "Mixed", note: "a mix of foundational, associate, and professional difficulty" }
+];
+
+export const DEFAULT_DIFFICULTY = "mixed";
+
+// A player with this tag is treated as a teacher/admin: they get the Teacher
+// menu (assign lessons to the class, view the roster, reset a student). Grant
+// it in-game with:  /tag "<player>" add sq_admin
+export const ADMIN_TAG = "sq_admin";
 
 export const PLAYER_API_ENDPOINT = "https://api.anthropic.com/v1/messages";
 export const PLAYER_API_MODEL = "claude-haiku-4-5-20251001";

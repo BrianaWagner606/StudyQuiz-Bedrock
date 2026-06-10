@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Study Quiz · Teacher Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#101219; --bg2:#13161f; --surface:#1a1e2b; --border:#2a3040; --border-soft:#222637;
+    --ink:#e7e9f0; --muted:#8b91a3; --faint:#5a6072;
+    --gold:#e0a848; --gold-soft:rgba(224,168,72,.14);
+    --teal:#56c4c0; --teal-soft:rgba(86,196,192,.13);
+    --green:#5fb87a; --red:#e0786b;
+    --mono:'JetBrains Mono',monospace; --disp:'Space Grotesk',sans-serif; --body:'Inter',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;
+    background-image:radial-gradient(circle at 18% 0%,rgba(224,168,72,.05),transparent 40%),radial-gradient(circle at 100% 100%,rgba(86,196,192,.05),transparent 45%);min-height:100vh}
+  .wrap{max-width:1040px;margin:0 auto;padding:34px 28px 60px}
+  header{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:8px}
+  h1{font-family:var(--disp);font-weight:700;font-size:28px;letter-spacing:-.02em}
+  .v{font-family:var(--mono);font-size:10px;color:var(--gold);border:1px solid var(--gold);border-radius:4px;padding:1px 6px;margin-left:8px}
+  .sub{color:var(--muted);font-size:13.5px;margin-bottom:26px}
+  .tokbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  input,select{background:var(--surface);border:1px solid var(--border-soft);color:var(--ink);font-family:var(--mono);
+    font-size:12px;padding:8px 10px;border-radius:8px;outline:none}
+  input:focus,select:focus{border-color:var(--teal)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:780px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--surface);border:1px solid var(--border-soft);border-radius:14px;padding:20px 22px}
+  .card h2{font-family:var(--disp);font-weight:600;font-size:16px;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+  .card .hint{color:var(--faint);font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;margin-bottom:16px}
+  .btn{background:var(--gold);color:var(--bg);border:none;font-family:var(--mono);font-weight:700;font-size:11.5px;letter-spacing:.06em;
+    text-transform:uppercase;padding:10px 16px;border-radius:8px;cursor:pointer}
+  .btn:hover{filter:brightness(1.08)}
+  .btn.ghost{background:var(--surface);color:var(--ink);border:1px solid var(--border)}
+  .btn.teal{background:var(--teal)}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+  th{text-align:left;font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.1em;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--border-soft)}
+  td{padding:8px;border-bottom:1px solid var(--border-soft)}
+  td.num{font-family:var(--mono);text-align:right}
+  tr:hover td{background:var(--bg2)}
+  .rank{font-family:var(--mono);color:var(--gold);font-weight:700}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .row label{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;min-width:88px}
+  .toggle{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink)}
+  .status{font-family:var(--mono);font-size:11.5px;padding:8px 0;min-height:20px}
+  .status.ok{color:var(--green)} .status.err{color:var(--red)}
+  .now{background:var(--teal-soft);border:1px solid rgba(86,196,192,.3);border-radius:9px;padding:10px 14px;font-size:13px;margin-bottom:14px}
+  .now b{font-family:var(--mono);font-size:10px;color:var(--teal);letter-spacing:.1em;text-transform:uppercase;display:block;margin-bottom:3px}
+  .full{grid-column:1 / -1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><h1>Study Quiz · Teacher Console<span class="v">cloud</span></h1></div>
+    <div class="tokbar">
+      <input id="token" type="password" placeholder="Access token" style="width:220px">
+      <button class="btn ghost" id="saveTok">Save</button>
+      <button class="btn teal" id="refresh">Refresh</button>
+    </div>
+  </header>
+  <p class="sub">Live class progress and lesson assignment, backed by the cloud API.</p>
+  <div id="status" class="status"></div>
+
+  <div class="grid">
+    <section class="card full">
+      <h2>🏆 Leaderboard</h2>
+      <div class="hint">Sorted by mastered · pulled from the profiles table</div>
+      <div class="row">
+        <label>Sort by</label>
+        <select id="sort">
+          <option value="masteredTotal">Mastered</option>
+          <option value="correct">Correct</option>
+          <option value="coins">Coins</option>
+          <option value="answered">Answered</option>
+        </select>
+      </div>
+      <table id="board"><thead><tr><th>#</th><th>Player</th><th>Answered</th><th>Accuracy</th><th>Mastered</th><th>Coins</th></tr></thead><tbody></tbody></table>
+    </section>
+
+    <section class="card full">
+      <h2>📚 Class lesson</h2>
+      <div class="hint">Assign one lesson to every player · optionally lock it</div>
+      <div class="now" id="currentClass"><b>Current</b><span>—</span></div>
+      <div class="row">
+        <label>Pack</label>
+        <select id="pack"></select>
+      </div>
+      <div class="row" id="langRow" style="display:none">
+        <label>Language</label>
+        <select id="lang"></select>
+      </div>
+      <div class="row">
+        <label>Free topic</label>
+        <input id="freeTopic" placeholder="(only if Pack = Free topic)" style="flex:1;min-width:200px">
+      </div>
+      <div class="row">
+        <label>Difficulty</label>
+        <select id="difficulty">
+          <option value="foundational">Foundational</option>
+          <option value="associate">Associate</option>
+          <option value="pro">Pro</option>
+          <option value="mixed" selected>Mixed</option>
+        </select>
+      </div>
+      <div class="row">
+        <span class="toggle"><input type="checkbox" id="locked"> Lock topic &amp; difficulty for students</span>
+      </div>
+      <div class="row">
+        <button class="btn" id="assign">Assign to class</button>
+        <button class="btn ghost" id="clear">Clear lesson</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+/* The API base is injected at deploy time by Terraform. */
+const API_BASE = "%%API_BASE%%";
+
+/* Curriculum packs (kept in sync with study_quiz_bp/scripts/questions/curriculum.js). */
+const AREAS = [
+  { id:'cloud', name:'Cloud & IaC' },
+  { id:'devops', name:'DevOps & SRE' },
+  { id:'aiml', name:'AI / ML Engineering' },
+  { id:'security', name:'Security' },
+  { id:'data', name:'Data Engineering' },
+  { id:'lang', name:'Programming Languages', langs:['Python','Java','Go','C#/.NET','TypeScript','JavaScript','Rust','Swift','Kotlin'] },
+  { id:'sysdesign', name:'System Design' },
+  { id:'csfund', name:'CS Fundamentals' },
+];
+const FREE = '__free__';
+
+function curriculumTopicKey(area, lang){
+  if(!area) return '';
+  if(area.langs && area.langs.length){
+    const chosen = (lang || area.langs[0]);
+    return 'lang_' + chosen.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+  }
+  return area.id;
+}
+function curriculumSubject(area, lang){
+  if(!area) return '';
+  if(area.langs && area.langs.length) return 'the ' + (lang || area.langs[0]) + ' programming language';
+  return area.name;
+}
+
+const $ = s => document.querySelector(s);
+const token = () => localStorage.getItem('sq_token') || '';
+function setStatus(msg, kind){ const el=$('#status'); el.textContent=msg||''; el.className='status'+(kind?(' '+kind):''); }
+
+async function api(path, opts={}){
+  const res = await fetch(API_BASE + path, {
+    ...opts,
+    headers: { 'content-type':'application/json', 'authorization':'Bearer '+token(), ...(opts.headers||{}) }
+  });
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  return res.status===204 ? null : res.json();
+}
+
+async function loadBoard(){
+  const sort = $('#sort').value;
+  const data = await api('/leaderboard?sort='+encodeURIComponent(sort)+'&limit=50');
+  const tb = $('#board tbody'); tb.innerHTML='';
+  (data.entries||[]).forEach((p,i)=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td class="rank">${i+1}</td><td>${esc(p.name)}</td>
+      <td class="num">${p.answered}</td><td class="num">${p.answered>0?p.accuracy+'%':'—'}</td>
+      <td class="num">${p.masteredTotal}</td><td class="num">${p.coins}</td>`;
+    tb.appendChild(tr);
+  });
+  if(!(data.entries||[]).length) tb.innerHTML='<tr><td colspan="6" style="color:var(--faint)">No players yet.</td></tr>';
+}
+
+async function loadClass(){
+  const cls = await api('/class');
+  const el = $('#currentClass').querySelector('span');
+  if(cls && cls.active){
+    el.textContent = `${cls.subject||cls.topicKey} · ${cls.difficulty}${cls.locked?' · locked':''}`;
+  } else {
+    el.textContent = 'No lesson assigned — students study their own picks.';
+  }
+}
+
+function esc(s){ return `${s}`.replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function buildPackSelect(){
+  const sel=$('#pack'); sel.innerHTML='';
+  AREAS.forEach(a=>{ const o=document.createElement('option'); o.value=a.id; o.textContent=a.name; sel.appendChild(o); });
+  const free=document.createElement('option'); free.value=FREE; free.textContent='Free topic (use box)'; sel.appendChild(free);
+  const langArea = AREAS.find(a=>a.langs);
+  const langSel=$('#lang'); langArea.langs.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent=l; langSel.appendChild(o); });
+  sel.onchange=()=>{ const a=AREAS.find(x=>x.id===sel.value); $('#langRow').style.display = (a&&a.langs)?'flex':'none'; };
+}
+
+async function assign(){
+  const packId=$('#pack').value, difficulty=$('#difficulty').value, locked=$('#locked').checked;
+  let value;
+  if(packId===FREE){
+    const t=$('#freeTopic').value.trim();
+    if(!t){ setStatus('Type a free topic or pick a pack.','err'); return; }
+    value={ active:true, locked, topicKey:t, subject:t, curriculumId:'', lang:'', difficulty };
+  } else {
+    const area=AREAS.find(a=>a.id===packId);
+    const lang = area.langs ? $('#lang').value : '';
+    value={ active:true, locked, topicKey:curriculumTopicKey(area,lang), subject:curriculumSubject(area,lang), curriculumId:area.id, lang, difficulty };
+  }
+  await api('/class', { method:'PUT', body: JSON.stringify(value) });
+  setStatus('Lesson assigned: '+value.subject+' ('+difficulty+')','ok');
+  loadClass();
+}
+
+async function clearClass(){
+  await api('/class', { method:'PUT', body: JSON.stringify({ active:false }) });
+  setStatus('Lesson cleared.','ok');
+  loadClass();
+}
+
+async function refreshAll(){
+  if(!token()){ setStatus('Enter your access token to load data.','err'); return; }
+  setStatus('Loading…');
+  try { await Promise.all([loadBoard(), loadClass()]); setStatus('Up to date.','ok'); }
+  catch(e){ setStatus('Error: '+e.message+' (check your token / API).','err'); }
+}
+
+$('#saveTok').onclick=()=>{ localStorage.setItem('sq_token', $('#token').value.trim()); setStatus('Token saved.','ok'); refreshAll(); };
+$('#refresh').onclick=refreshAll;
+$('#sort').onchange=()=>{ if(token()) loadBoard(); };
+$('#assign').onclick=()=>assign().catch(e=>setStatus('Error: '+e.message,'err'));
+$('#clear').onclick=()=>clearClass().catch(e=>setStatus('Error: '+e.message,'err'));
+
+(function init(){
+  $('#token').value = token();
+  buildPackSelect();
+  if(token()) refreshAll(); else setStatus('Enter your access token (terraform output -raw auth_token) and Save.');
+})();
+</script>
+</body>
+</html>
