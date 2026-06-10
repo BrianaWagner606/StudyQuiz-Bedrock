@@ -10,6 +10,21 @@ any-subject questions.
 
 ---
 
+## ⬇️ Download & install
+
+> **Requires a [Bedrock Dedicated Server (BDS)](https://www.minecraft.net/en-us/download/server/bedrock) 1.21.80+** — this is a server add-on, not a Realms or regular-client mod.
+
+### 👉 [**Download the latest release**](https://github.com/BrianaWagner606/StudyQuiz-Bedrock/releases/latest)
+
+- **Easiest:** grab **`StudyQuiz-Full-Project.zip`**, unzip it, run **`install-bds.bat`**, and paste your BDS folder path. It copies both packs *and* sets `permissions.json` for you (the step people most often miss).
+- **One-click packs:** grab **`StudyQuiz.mcaddon`**, import it, attach both packs to your world, and allow the script modules in `config/default/permissions.json`.
+
+Restart the server and it works **offline immediately**. **Players install nothing** — just join a server that runs it and use the **Study Settings book** in your inventory (or `/scriptevent study:open`).
+
+👉 Full steps & troubleshooting: **[USER_GUIDE.md](USER_GUIDE.md)**  ·  AI questions are **bring-your-own-key** — see **[SECURITY.md](SECURITY.md)**.
+
+---
+
 ## ✨ Features
 - Timed pop quizzes with a 3-2-1 countdown before the user is prompted with the question so they can prepare while in game.
 - Collectible **pink Study Coin** item (real inventory item)
@@ -20,17 +35,6 @@ any-subject questions.
 - **Difficulty tiers** — foundational / associate / pro / mixed, fed into the AI
 - **Teacher tools** (tag a player `sq_admin`) — assign a lesson to the whole class, lock topic/difficulty, view a class roster, reset a student
 - Optional AI-generated questions via a secure local gateway
-
----
-
-## 🚀 Quick start
-1. Copy `study_quiz_bp` and `study_quiz_rp` into your BDS pack folders and attach
-   them to your world.
-2. Start the server and join — use the **Study Settings book** in your inventory to
-   open the menu.
-3. *(Optional)* For live AI questions, set up the `proxy` (see the guide).
-
-👉 **Full instructions:** [USER_GUIDE.md](USER_GUIDE.md)
 
 ---
 
