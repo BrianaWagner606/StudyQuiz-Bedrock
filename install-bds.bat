@@ -72,7 +72,7 @@ echo.
 echo Make sure these two files exist with this content:
 echo.
 echo   world_behavior_packs.json
-echo     [ { "pack_id": "7f01af09-a5e4-45cf-9f36-696f96a50c0b", "version": [1,0,0] } ]
+echo     [ { "pack_id": "7f01af09-a5e4-45cf-9f36-696f96a50c0b", "version": [1,1,0] } ]
 echo.
 echo   world_resource_packs.json
 echo     [ { "pack_id": "b2d6f3a1-9c44-4e7a-8f12-3a7e5c901d44", "version": [1,0,0] } ]
