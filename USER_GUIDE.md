@@ -1,6 +1,6 @@
 # Study Quiz — User Guide
 
-A cute, pink study-quiz add-on for **Minecraft Bedrock Dedicated Server (BDS)**.
+study-quiz add-on for **Minecraft Bedrock Dedicated Server (BDS)**.
 Players answer quiz questions while they play, earn an adorable **pink Study Coin**,
 spend coins in an in-game **Store**, and risk dropping their coins if they answer wrong.
 
