@@ -82,7 +82,7 @@ prefer to do it by hand.
    **`world_behavior_packs.json`**
    ```json
    [
-     { "pack_id": "7f01af09-a5e4-45cf-9f36-696f96a50c0b", "version": [1, 0, 0] }
+     { "pack_id": "7f01af09-a5e4-45cf-9f36-696f96a50c0b", "version": [1, 1, 0] }
    ]
    ```
 
