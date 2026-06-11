@@ -42,7 +42,7 @@ import {
   pushProfile as cloudPushProfile,
   sendEvents as cloudSendEvents
 } from "./cloudSync.js";
-import { nowMs, shuffleInPlace } from "./utils.js";
+import { nowMs, shuffleInPlace, wrapButtonLabel } from "./utils.js";
 
 const bundledProvider = new BundledProvider();
 const apiProvider = new ApiProvider(bundledProvider);
@@ -1154,11 +1154,12 @@ async function askQuestion(player, triggerSource) {
     return;
   }
 
-  // Bedrock form BUTTONS clip long text (and don't reliably wrap), but the form
-  // BODY wraps and scrolls. So every answer is shown in full in the body as a
-  // numbered list, and each button is labeled with the matching number - so even
-  // very long answers are always fully readable. Button order matches `options`,
-  // so `correctButton` (computed above) still lines up.
+  // Long answers must never get cut off. Two things keep them fully readable:
+  //   1) Each BUTTON label is wrapped onto multiple lines (wrapButtonLabel) so a
+  //      long answer never clips at the edge of the button.
+  //   2) The full options are ALSO listed in the form BODY as a numbered list,
+  //      which wraps and scrolls, so every choice is always readable in full.
+  // Button order matches `options`, so `correctButton` (above) still lines up.
   const numberedOptions = options
     .map((option, idx) => `${THEME.pink}${idx + 1}.${THEME.white} ${option.text}`)
     .join("\n");
@@ -1167,7 +1168,7 @@ async function askQuestion(player, triggerSource) {
     .title(uiTitle(describeConfigSubject(config)))
     .body(`${THEME.white}${question.question}\n${uiDivider()}\n${numberedOptions}`);
   options.forEach((option, idx) => {
-    form.button(`${THEME.white}${idx + 1}. ${option.text}`);
+    form.button(`${THEME.white}${wrapButtonLabel(`${idx + 1}. ${option.text}`)}`);
   });
 
   const playerKey = getPlayerKey(player);
