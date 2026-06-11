@@ -92,11 +92,23 @@ Set in `terraform.tfvars`:
 ```hcl
 upstream         = "bedrock"
 anthropic_api_key = ""    # not needed
-# bedrock_model_id = "anthropic.claude-3-5-haiku-20241022-v1:0"
+# Most current Claude models on Bedrock are invokable ONLY via a cross-region
+# inference profile (us.* in the US, eu.* in Europe). The bare model id
+# (anthropic.claude-...) returns "on-demand throughput isn't supported".
+bedrock_model_id = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 ```
 
 `terraform apply`. The gateway now calls Bedrock with IAM — no API key. Make sure
-the model is enabled in **Bedrock → Model access** for your region.
+the model is enabled in **Bedrock → Model access** for your region. To list what
+your account can invoke:
+
+```bash
+aws bedrock list-inference-profiles --region us-east-1 \
+  --query "inferenceProfileSummaries[?contains(inferenceProfileId,'haiku')].inferenceProfileId" --output text
+```
+
+The IAM policy already allows both `foundation-model/*` and `inference-profile/*`,
+which cross-region profiles require.
 
 ---
 

@@ -34,9 +34,9 @@ variable "default_model" {
 }
 
 variable "bedrock_model_id" {
-  description = "Bedrock model id used when upstream = bedrock."
+  description = "Bedrock model id/inference-profile used when upstream = bedrock. Most current Claude models are invokable only via a cross-region inference profile (us.* in the US, eu.* in Europe, etc.). Pick the profile available in your region."
   type        = string
-  default     = "anthropic.claude-3-5-haiku-20241022-v1:0"
+  default     = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 }
 
 variable "cache_ttl_seconds" {
