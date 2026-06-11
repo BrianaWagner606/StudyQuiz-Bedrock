@@ -32,9 +32,14 @@ data "aws_iam_policy_document" "gateway" {
     resources = [aws_dynamodb_table.cache.arn]
   }
   statement {
-    sid       = "InvokeBedrock"
-    actions   = ["bedrock:InvokeModel"]
-    resources = ["arn:aws:bedrock:*::foundation-model/*"]
+    sid     = "InvokeBedrock"
+    actions = ["bedrock:InvokeModel"]
+    # Cross-region inference profiles (us.* / global.*) invoke the underlying
+    # foundation model in several regions, so both resource types are required.
+    resources = [
+      "arn:aws:bedrock:*::foundation-model/*",
+      "arn:aws:bedrock:*:*:inference-profile/*"
+    ]
   }
 }
 
