@@ -98,8 +98,7 @@ anthropic_api_key = ""    # not needed
 bedrock_model_id = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 ```
 
-`terraform apply`. The gateway now calls Bedrock with IAM — no API key. Make sure
-the model is enabled in **Bedrock → Model access** for your region. To list what
+`terraform apply`. The gateway now calls Bedrock with IAM — no API key. List what
 your account can invoke:
 
 ```bash
@@ -109,6 +108,42 @@ aws bedrock list-inference-profiles --region us-east-1 \
 
 The IAM policy already allows both `foundation-model/*` and `inference-profile/*`,
 which cross-region profiles require.
+
+### ⚠️ Enable model access first (the step that bites everyone)
+
+Before any Claude model works, your account must **request model access** and
+submit the one-time **Anthropic "use case details" form**. Until you do, calls
+fail with:
+
+> `ResourceNotFoundException: Model use case details have not been submitted for this account...`
+
+Crucially, a **cross-region inference profile invokes the model in several
+regions**, so access must be granted in **every** region the profile spans — not
+just your deploy region. Check which regions:
+
+```bash
+aws bedrock get-inference-profile \
+  --inference-profile-identifier us.anthropic.claude-haiku-4-5-20251001-v1:0 \
+  --region us-east-1 --query 'models[].modelArn' --output text
+```
+
+For `us.anthropic.claude-haiku-4-5` that's **us-east-1, us-east-2, us-west-2**.
+For **each** region:
+
+1. AWS Console → set the **Region** selector (top-right) to that region.
+2. **Amazon Bedrock → Model access** → **Modify model access**.
+3. Tick **Anthropic → Claude Haiku 4.5** → **Next** → **Submit**. The first time
+   it asks for use-case details (one-time, account-wide); after that it's just
+   the per-region checkbox.
+4. Wait for **Access granted** (a minute or two; the error warns up to ~15).
+
+No redeploy is needed afterward — invocations just start succeeding. Symptom of a
+missed region: it works *intermittently* (some calls 200, some 502), because the
+profile load-balances across regions.
+
+> Prefer a single region to manage? Set `bedrock_model_id =
+> "anthropic.claude-3-haiku-20240307-v1:0"` — an older model with on-demand
+> throughput in `us-east-1` only (still needs the use-case form, once).
 
 ---
 
