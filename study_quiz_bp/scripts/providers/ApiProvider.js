@@ -506,6 +506,52 @@ export class ApiProvider extends QuestionProvider {
     }
   }
 
+  // Conversational tutor answer about a topic. `history` is an array of prior
+  // { role: "user"|"assistant", content } turns. Returns the answer text or null.
+  async askTutor(topic, question, history, overrideConfig = null) {
+    const config = this.resolveConfig(overrideConfig);
+    if (!config) {
+      return null;
+    }
+
+    const system = `You are a friendly, encouraging tutor helping a student understand ${topic || "their topic"}. Answer in 2-4 short sentences, plain text only - no markdown. If they drift off topic, gently bring them back.`;
+    const prior = Array.isArray(history) ? history.slice(-6) : [];
+    const messages = [...prior, { role: "user", content: `${question ?? ""}` }];
+
+    try {
+      let request;
+      if (this.shouldUseAnthropic(config)) {
+        const payload = { model: config.model, max_tokens: 400, temperature: 0.5, system, messages };
+        request = new HttpRequest(config.endpoint || ANTHROPIC_ENDPOINT);
+        request.method = HttpRequestMethod.Post;
+        request.headers = [
+          new HttpHeader("Content-Type", "application/json"),
+          new HttpHeader("x-api-key", `${config.apiKey ?? ""}`),
+          new HttpHeader("anthropic-version", "2023-06-01")
+        ];
+        request.body = JSON.stringify(payload);
+      } else {
+        const payload = { model: config.model, temperature: 0.5, messages: [{ role: "system", content: system }, ...messages] };
+        request = new HttpRequest(config.endpoint);
+        request.method = HttpRequestMethod.Post;
+        request.headers = [
+          new HttpHeader("Content-Type", "application/json"),
+          new HttpHeader("Authorization", `Bearer ${config.apiKey}`)
+        ];
+        request.body = JSON.stringify(payload);
+      }
+
+      const response = await http.request(request);
+      if ((response?.status ?? -1) < 200 || response.status >= 300) {
+        return null;
+      }
+      return extractTextFromApiResponse(response?.body ?? "");
+    } catch (error) {
+      console.warn(`[StudyQuiz] Tutor request failed: ${error}`);
+      return null;
+    }
+  }
+
   async getQuestions(topic, optionCount, excludeIds = new Set(), overrideConfig = null, avoidTexts = [], meta = {}) {
     const config = this.resolveConfig(overrideConfig);
     if (!config) {

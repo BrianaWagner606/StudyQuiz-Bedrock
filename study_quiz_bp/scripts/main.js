@@ -62,6 +62,9 @@ const lastMenuOpenMsByPlayer = new Map();
 // pushed when a player's progress changes; answer events are batched.
 const cloudDirtyPlayers = new Set();
 const cloudEventQueue = [];
+
+// In-memory tutor chat history per player (this session only).
+const tutorHistoryByPlayer = new Map();
 let coinObjective = null;
 // Whether the in-chat "!study" command actually hooked. On some BDS runtimes the
 // chat event isn't available, so we tell players to use the book instead.
@@ -559,14 +562,109 @@ async function openStatsMenu(player) {
 }
 
 // ---- Curriculum packs: browse structured tech tracks and start a drill ----
-// ---- In-game lesson mode: read short teaching cards, then a check question ----
-async function openLessonsMenu(player) {
-  const areas = listAreas();
+// ---- Topics: let players add, pick, and remove their own study topics ----
+async function openTopicsMenu(player) {
+  const cfg = getEffectiveConfig(player);
+
+  // If a teacher has locked the lesson, players can't change the topic.
+  if (cfg.classActive && cfg.classLocked) {
+    const locked = new ActionFormData()
+      .title(uiTitle("Topics"))
+      .body(`${THEME.purple}${THEME.star} Your teacher set the topic: ${THEME.white}${describeConfigSubject(cfg)}\n${THEME.gray}You can't change it right now.`)
+      .button(`${THEME.white}${THEME.heart} Back`);
+    const res = await locked.show(player);
+    if (!res.canceled) {
+      await openMainMenu(player);
+    }
+    return;
+  }
+
+  const custom = state.getCustomTopics(player);
+  const bundled = getBundledTopicNames();
+
   const form = new ActionFormData()
-    .title(uiTitle("Lessons"))
-    .body(`${THEME.white}Pick a pack to study. You'll read a short lesson, then take a quick check.\n${uiDivider()}`);
-  for (const area of areas) {
-    form.button(`${THEME.white}${area.name}\n${THEME.gray}${area.eyebrow}`);
+    .title(uiTitle("Topics"))
+    .body(`${THEME.white}Studying: ${THEME.pink}${describeConfigSubject(cfg)}\n${THEME.gray}Add your own topic, or pick one below.\n${uiDivider()}`);
+
+  // Build buttons and a parallel list of handlers so indices always line up.
+  const entries = [];
+  form.button(`${THEME.white}${THEME.sparkle} Add a topic`, "textures/items/book_writable");
+  entries.push({ type: "add" });
+
+  for (const topic of custom) {
+    form.button(`${THEME.pink}${THEME.flower} ${THEME.white}${topic}`);
+    entries.push({ type: "topic", topic });
+  }
+  for (const topic of bundled) {
+    form.button(`${THEME.white}${labelForTopicKey(topic)}`);
+    entries.push({ type: "topic", topic });
+  }
+  if (custom.length > 0) {
+    form.button(`${THEME.red}${THEME.heart} ${THEME.white}Remove a topic`, "textures/ui/trash");
+    entries.push({ type: "remove" });
+  }
+  form.button(`${THEME.white}${THEME.heart} Back`, "textures/ui/arrow_left");
+  entries.push({ type: "back" });
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    return;
+  }
+  const entry = entries[result.selection];
+  if (!entry) {
+    return;
+  }
+  if (entry.type === "add") {
+    await openAddTopic(player);
+    return;
+  }
+  if (entry.type === "remove") {
+    await openRemoveTopic(player);
+    return;
+  }
+  if (entry.type === "back") {
+    await openMainMenu(player);
+    return;
+  }
+  // Pick a topic to study now (leaves any curriculum pack behind).
+  updatePlayerConfig(player, (prev) => ({ ...prev, topic: entry.topic, curriculumId: "", lang: "" }));
+  sendPlayerMessage(player, `${THEME.green}Now studying ${THEME.pink}${labelForTopicKey(entry.topic)}${THEME.green}!`);
+}
+
+async function openAddTopic(player) {
+  const form = new ModalFormData()
+    .title(uiTitle("Add a topic"))
+    .textField(`${THEME.white}${THEME.flower} Topic (type anything)`, "e.g. world capitals");
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    await openTopicsMenu(player);
+    return;
+  }
+  const name = `${result.formValues?.[0] ?? ""}`.trim();
+  if (!name) {
+    await openTopicsMenu(player);
+    return;
+  }
+  const saved = state.addCustomTopic(player, name);
+  if (saved) {
+    updatePlayerConfig(player, (prev) => ({ ...prev, topic: saved, curriculumId: "", lang: "" }));
+    sendPlayerMessage(player, `${THEME.green}Added and now studying ${THEME.pink}${saved}${THEME.green}! ${THEME.gray}AI writes the questions.`);
+  }
+  await openTopicsMenu(player);
+}
+
+async function openRemoveTopic(player) {
+  const custom = state.getCustomTopics(player);
+  if (custom.length === 0) {
+    await openTopicsMenu(player);
+    return;
+  }
+  const form = new ActionFormData()
+    .title(uiTitle("Remove a topic"))
+    .body(`${THEME.white}Tap a topic to remove it from your list.\n${uiDivider()}`);
+  for (const topic of custom) {
+    form.button(`${THEME.red}${THEME.heart} ${THEME.white}${topic}`);
   }
   form.button(`${THEME.white}${THEME.heart} Back`, "textures/ui/arrow_left");
 
@@ -574,14 +672,249 @@ async function openLessonsMenu(player) {
   if (result.canceled) {
     return;
   }
-  if (result.selection === areas.length) {
+  if (result.selection === custom.length) {
+    await openTopicsMenu(player);
+    return;
+  }
+  const topic = custom[result.selection];
+  state.removeCustomTopic(player, topic);
+  sendPlayerMessage(player, `${THEME.gray}Removed ${THEME.pink}${topic}${THEME.gray}.`);
+  await openRemoveTopic(player);
+}
+
+// ---- Notes: players write and save their own study notes ----
+async function openNotesMenu(player) {
+  const notes = state.getNotes(player);
+  const form = new ActionFormData()
+    .title(uiTitle("My Notes"))
+    .body(`${THEME.white}Your saved notes. Tap one to read or delete it.\n${uiDivider()}`);
+  form.button(`${THEME.white}${THEME.sparkle} Add a note`, "textures/items/book_writable");
+  for (const note of notes) {
+    const preview = note.length > 32 ? `${note.slice(0, 32)}...` : note;
+    form.button(`${THEME.pink}${THEME.flower} ${THEME.white}${preview}`);
+  }
+  form.button(`${THEME.white}${THEME.heart} Back`, "textures/ui/arrow_left");
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    return;
+  }
+  if (result.selection === 0) {
+    await openAddNote(player);
+    return;
+  }
+  const noteIndex = result.selection - 1; // shift for the "Add a note" button
+  if (noteIndex === notes.length) {
     await openMainMenu(player);
     return;
   }
-  const area = areas[result.selection];
-  if (area) {
-    await openLessonModules(player, area.id);
+  await openViewNote(player, noteIndex);
+}
+
+async function openAddNote(player) {
+  const form = new ModalFormData()
+    .title(uiTitle("Add a note"))
+    .textField(`${THEME.white}${THEME.flower} Your note`, "type your note here");
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    await openNotesMenu(player);
+    return;
   }
+  const text = `${result.formValues?.[0] ?? ""}`.trim();
+  if (text) {
+    state.addNote(player, text);
+    sendPlayerMessage(player, `${THEME.green}Note saved!`);
+  }
+  await openNotesMenu(player);
+}
+
+async function openViewNote(player, index) {
+  const note = state.getNotes(player)[index];
+  if (!note) {
+    await openNotesMenu(player);
+    return;
+  }
+  const form = new MessageFormData()
+    .title(uiTitle("Note"))
+    .body(`${THEME.white}${note}`)
+    .button1(`${THEME.white}${THEME.heart} Back`)
+    .button2(`${THEME.red}Delete`);
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    await openNotesMenu(player);
+    return;
+  }
+  if (result.selection === 1) {
+    state.removeNote(player, index);
+    sendPlayerMessage(player, `${THEME.gray}Note deleted.`);
+  }
+  await openNotesMenu(player);
+}
+
+// ---- Ask Claude: chat about a topic; earn a coin for each question asked ----
+async function openTutorMenu(player) {
+  const cfg = getEffectiveConfig(player);
+  if (!hasPlayerLiveConfig(cfg)) {
+    sendPlayerMessage(player, `${THEME.gray}Ask Claude needs AI turned on (the proxy or the cloud).`);
+    return;
+  }
+  const form = new ModalFormData()
+    .title(uiTitle("Ask Claude"))
+    .textField(`${THEME.white}${THEME.flower} What do you want to ask about?`, "e.g. the water cycle");
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    return;
+  }
+  const topic = `${result.formValues?.[0] ?? ""}`.trim() || describeConfigSubject(cfg);
+  tutorHistoryByPlayer.set(getPlayerKey(player), []); // fresh conversation
+  await openTutorAsk(player, topic);
+}
+
+async function openTutorAsk(player, topic) {
+  const ask = new ModalFormData()
+    .title(uiTitle("Ask Claude"))
+    .textField(`${THEME.white}${THEME.flower} Your question about ${topic}`, "type your question");
+
+  const result = await ask.show(player);
+  if (result.canceled) {
+    return;
+  }
+  const question = `${result.formValues?.[0] ?? ""}`.trim();
+  if (!question) {
+    await openTutorAsk(player, topic);
+    return;
+  }
+
+  try {
+    player.onScreenDisplay.setActionBar(`${THEME.pink}${THEME.heart} ${THEME.white}Claude is thinking...`);
+  } catch {
+    /* cosmetic */
+  }
+
+  const cfg = getEffectiveConfig(player);
+  const key = getPlayerKey(player);
+  const history = tutorHistoryByPlayer.get(key) ?? [];
+  const answer = await apiProvider.askTutor(topic, question, history, {
+    apiProvider: cfg.apiProvider,
+    apiEndpoint: cfg.apiEndpoint,
+    apiModel: cfg.apiModel,
+    apiKey: cfg.apiKey
+  });
+
+  if (!answer) {
+    const retry = new ActionFormData()
+      .title(uiTitle("Ask Claude"))
+      .body(`${THEME.red}Couldn't reach Claude right now. ${THEME.gray}Make sure AI is on, then try again.`)
+      .button(`${THEME.white}${THEME.heart} Try again`)
+      .button(`${THEME.white}Done`);
+    const retryResult = await retry.show(player);
+    if (!retryResult.canceled && retryResult.selection === 0) {
+      await openTutorAsk(player, topic);
+    }
+    return;
+  }
+
+  // Keep a short rolling history for follow-up questions, and pay a coin.
+  history.push({ role: "user", content: question }, { role: "assistant", content: answer });
+  if (history.length > 8) {
+    history.splice(0, history.length - 8);
+  }
+  tutorHistoryByPlayer.set(key, history);
+  giveCoins(player, 1);
+
+  const answerForm = new ActionFormData()
+    .title(uiTitle(`About ${topic}`))
+    .body([
+      `${THEME.pink}${THEME.flower} ${THEME.white}${question}`,
+      uiDivider(),
+      `${THEME.white}${answer}`,
+      "",
+      `${THEME.gold}${THEME.heart} +1 coin for asking!`
+    ].join("\n"))
+    .button(`${THEME.white}${THEME.sparkle} Ask another`)
+    .button(`${THEME.white}${THEME.flower} Change topic`)
+    .button(`${THEME.white}${THEME.heart} Done`);
+
+  const answerResult = await answerForm.show(player);
+  if (answerResult.canceled) {
+    return;
+  }
+  if (answerResult.selection === 0) {
+    await openTutorAsk(player, topic);
+  } else if (answerResult.selection === 1) {
+    await openTutorMenu(player);
+  } else {
+    await openMainMenu(player);
+  }
+}
+
+// ---- In-game lesson mode: read short teaching cards, then a check question ----
+async function openLessonsMenu(player) {
+  const areas = listAreas();
+  const custom = state.getCustomTopics(player);
+  const done = state.getCompletedLessons(player);
+
+  const form = new ActionFormData()
+    .title(uiTitle("Lessons"))
+    .body(`${THEME.white}Read a short lesson, then take a quick check.\n${THEME.gray}Type your own topic ${THEME.green}${THEME.heart}${THEME.gray} = done, or pick a pack below.\n${uiDivider()}`);
+
+  // Build buttons + handlers together so indices always line up.
+  const entries = [];
+  form.button(`${THEME.white}${THEME.sparkle} Type your own topic`, "textures/items/book_writable");
+  entries.push({ type: "custom-new" });
+
+  // The player's saved topics - click to do a lesson without retyping.
+  for (const topic of custom) {
+    const check = done.has(`custom:${topic.toLowerCase()}`) ? ` ${THEME.green}${THEME.heart}` : "";
+    form.button(`${THEME.pink}${THEME.flower} ${THEME.white}${topic}${check}`);
+    entries.push({ type: "custom-topic", topic });
+  }
+
+  for (const area of areas) {
+    form.button(`${THEME.white}${area.name}\n${THEME.gray}${area.eyebrow}`);
+    entries.push({ type: "area", areaId: area.id });
+  }
+  form.button(`${THEME.white}${THEME.heart} Back`, "textures/ui/arrow_left");
+  entries.push({ type: "back" });
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    return;
+  }
+  const entry = entries[result.selection];
+  if (!entry) {
+    return;
+  }
+  if (entry.type === "custom-new") {
+    await openCustomLessonPrompt(player);
+  } else if (entry.type === "custom-topic") {
+    await playCustomLesson(player, entry.topic);
+  } else if (entry.type === "area") {
+    await openLessonModules(player, entry.areaId);
+  } else {
+    await openMainMenu(player);
+  }
+}
+
+async function openCustomLessonPrompt(player) {
+  const form = new ModalFormData()
+    .title(uiTitle("Lesson topic"))
+    .textField(`${THEME.white}${THEME.flower} What do you want a lesson on?`, "e.g. photosynthesis");
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    await openLessonsMenu(player);
+    return;
+  }
+  const name = `${result.formValues?.[0] ?? ""}`.trim();
+  if (!name) {
+    await openLessonsMenu(player);
+    return;
+  }
+  await playCustomLesson(player, name);
 }
 
 async function openLessonModules(player, areaId) {
@@ -640,15 +973,43 @@ async function playLesson(player, area, moduleIndex) {
     await openLessonModules(player, area.id);
     return;
   }
-
   const cfg = getEffectiveConfig(player);
-  const subject = getCurriculumSubject(area, cfg.lang);
+  await runLesson(player, {
+    subject: getCurriculumSubject(area, cfg.lang),
+    title: module.t,
+    topics: module.topics,
+    lessonKey: `${area.id}:${moduleIndex}`
+  });
+}
+
+// A lesson on a topic the player typed in (not a built-in module). Saved to
+// their Topics list so it's reusable for quizzes too.
+async function playCustomLesson(player, topicName) {
+  const clean = `${topicName ?? ""}`.trim();
+  if (!clean) {
+    await openLessonsMenu(player);
+    return;
+  }
+  state.addCustomTopic(player, clean);
+  await runLesson(player, {
+    subject: clean,
+    title: clean,
+    topics: [clean],
+    lessonKey: `custom:${clean.toLowerCase()}`
+  });
+}
+
+// Core lesson flow: fetch teaching cards, page through them, then one check
+// question. No penalty; coins only the first time a lesson key is completed.
+async function runLesson(player, { subject, title, topics, lessonKey }) {
+  const cfg = getEffectiveConfig(player);
   const apiConfig = {
     apiProvider: cfg.apiProvider,
     apiEndpoint: cfg.apiEndpoint,
     apiModel: cfg.apiModel,
     apiKey: cfg.apiKey
   };
+  const topicList = Array.isArray(topics) ? topics : [];
 
   try {
     player.onScreenDisplay.setActionBar(`${THEME.pink}${THEME.heart} ${THEME.white}Preparing your lesson...`);
@@ -656,13 +1017,12 @@ async function playLesson(player, area, moduleIndex) {
     /* cosmetic */
   }
 
-  let cards = await apiProvider.getLessonCards(subject, module.t, module.topics, apiConfig);
+  let cards = await apiProvider.getLessonCards(subject, title, topicList, apiConfig);
   if (!cards || cards.length === 0) {
-    // Offline fallback: an outline built from the module's own topic list.
-    const topics = Array.isArray(module.topics) ? module.topics : [];
-    cards = topics.map((topic) => ({ title: topic, body: `A key idea in ${module.t}. Turn on AI questions for a full explanation.` }));
+    // Offline fallback: an outline built from the topic list.
+    cards = topicList.map((topic) => ({ title: topic, body: `A key idea in ${title}. Turn on AI questions for a full explanation.` }));
     if (cards.length === 0) {
-      cards = [{ title: module.t, body: "Study this module's topics, then take a quiz." }];
+      cards = [{ title, body: `Study ${title}, then take a quiz.` }];
     }
   }
 
@@ -673,7 +1033,7 @@ async function playLesson(player, area, moduleIndex) {
     const card = cards[i];
     const last = i === cards.length - 1;
     const form = new ActionFormData()
-      .title(uiTitle(module.t))
+      .title(uiTitle(title))
       .body([
         `${THEME.purple}${THEME.star} ${THEME.white}${card.title}`,
         uiDivider(),
@@ -690,28 +1050,29 @@ async function playLesson(player, area, moduleIndex) {
     }
   }
 
-  // One check question on the module's topics. No penalty.
+  // One check question on the topic. No penalty.
   let checkQuestion = null;
   try {
     const fetched = await apiProvider.getQuestions(
-      `${area.id}:${moduleIndex}`,
+      lessonKey,
       cfg.optionCount,
       new Set(),
       apiConfig,
       [],
-      { subject, difficulty: cfg.difficulty, focus: (module.topics ?? []).join("; ") }
+      { subject, difficulty: cfg.difficulty, focus: topicList.join("; ") }
     );
     checkQuestion = fetched.questions?.[0] ?? null;
   } catch {
     checkQuestion = null;
   }
 
-  const lessonKey = `${area.id}:${moduleIndex}`;
   const alreadyDone = state.getCompletedLessons(player).has(lessonKey);
 
+  let correct = false;
   if (checkQuestion) {
     const outcome = await presentCheckQuestion(player, checkQuestion);
-    if (outcome.answered && outcome.correct) {
+    correct = outcome.answered && outcome.correct;
+    if (correct) {
       sendPlayerMessage(player, `${THEME.green}Correct! ${THEME.white}Lesson complete.`);
     } else if (outcome.answered) {
       const answer = checkQuestion.options[checkQuestion.answerIndex] ?? "(unknown)";
@@ -723,14 +1084,16 @@ async function playLesson(player, area, moduleIndex) {
     sendPlayerMessage(player, "Lesson complete!");
   }
 
-  // Award coins only the first time, so a lesson can't be farmed by re-reading.
-  // Re-studying is still free and encouraged.
+  // Coins for completing, DOUBLED if the check question was correct. Awarded
+  // once per lesson so it can't be farmed by re-reading; re-studying is free.
   state.addCompletedLesson(player, lessonKey);
   if (alreadyDone) {
     sendPlayerMessage(player, `${THEME.gray}You already earned coins for this lesson - nice review!`);
   } else {
-    giveCoins(player, LESSON_REWARD_COINS);
-    sendPlayerMessage(player, `${THEME.gold}${THEME.heart} +${LESSON_REWARD_COINS} coins for completing ${THEME.pink}${module.t}${THEME.gold}!`);
+    const reward = correct ? LESSON_REWARD_COINS * 2 : LESSON_REWARD_COINS;
+    const note = correct ? `${THEME.gold}- double for the right answer!` : `${THEME.gray}for completing`;
+    giveCoins(player, reward);
+    sendPlayerMessage(player, `${THEME.gold}${THEME.heart} +${reward} coins ${note} ${THEME.pink}${title}${THEME.gold}!`);
   }
 }
 
@@ -1499,6 +1862,9 @@ async function openMainMenu(player) {
     { label: `${THEME.white}${THEME.heart} Take a Quiz`, icon: "textures/items/book_enchanted", run: () => askQuestion(player, "manual") },
     { label: `${THEME.white}${THEME.sparkle} Curriculum`, icon: "textures/items/book_portfolio", run: () => openCurriculumMenu(player) },
     { label: `${THEME.white}${THEME.star} Lessons`, icon: "textures/items/book_normal", run: () => openLessonsMenu(player) },
+    { label: `${THEME.white}${THEME.heart} Ask Claude`, icon: "textures/items/book_enchanted", run: () => openTutorMenu(player) },
+    { label: `${THEME.white}${THEME.flower} Topics`, icon: "textures/items/paper", run: () => openTopicsMenu(player) },
+    { label: `${THEME.white}${THEME.sparkle} My Notes`, icon: "textures/items/book_writable", run: () => openNotesMenu(player) },
     { label: `${THEME.white}${THEME.flower} Settings`, icon: "textures/items/comparator", run: () => openSettingsMenu(player) },
     { label: `${THEME.white}${THEME.sparkle} Store`, icon: "textures/items/emerald", run: () => openStoreMenu(player) },
     { label: `${THEME.white}${THEME.star} My Stats`, icon: "textures/items/book_writable", run: () => openStatsMenu(player) }

@@ -20,6 +20,13 @@ const DP_MASTERY = "sq_mastery";
 const DP_SEEN = "sq_seen";
 const DP_STATS = "sq_stats";
 const DP_LESSONS = "sq_lessons";
+const DP_TOPICS = "sq_topics";
+const DP_NOTES = "sq_notes";
+
+const CUSTOM_TOPICS_MAX = 30;
+const CUSTOM_TOPIC_MAX_LEN = 40;
+const NOTES_MAX = 50;
+const NOTE_MAX_LEN = 200;
 
 // World-level (shared) dynamic property holding the teacher's class assignment:
 // the lesson everyone is studying, the difficulty, and whether students may
@@ -42,6 +49,8 @@ const memoryMastery = new Map();
 const memorySeen = new Map();
 const memoryStats = new Map();
 const memoryLessons = new Map();
+const memoryTopics = new Map();
+const memoryNotes = new Map();
 
 function playerKey(player) {
   return `${player?.id ?? player?.name ?? "unknown"}`;
@@ -313,6 +322,72 @@ export class PlayerStateStore {
 
   getLessonCount(player) {
     return this.getCompletedLessons(player).size;
+  }
+
+  // ---- Player's own saved study topics (added from the Topics menu) ----
+  getCustomTopics(player) {
+    const raw = `${readPlayerProperty(player, DP_TOPICS, memoryTopics, "[]") ?? "[]"}`;
+    const parsed = safeJsonParse(raw, []);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter((topic) => typeof topic === "string" && topic.trim().length > 0);
+  }
+
+  // Returns the cleaned topic that was saved (or already existed), or null.
+  addCustomTopic(player, name) {
+    const clean = `${name ?? ""}`.trim().slice(0, CUSTOM_TOPIC_MAX_LEN);
+    if (!clean) {
+      return null;
+    }
+    const list = this.getCustomTopics(player);
+    if (list.some((topic) => topic.toLowerCase() === clean.toLowerCase())) {
+      return clean;
+    }
+    const next = [...list, clean];
+    if (next.length > CUSTOM_TOPICS_MAX) {
+      next.splice(0, next.length - CUSTOM_TOPICS_MAX);
+    }
+    writeCoreProperty(player, DP_TOPICS, memoryTopics, JSON.stringify(next));
+    return clean;
+  }
+
+  removeCustomTopic(player, name) {
+    const target = `${name ?? ""}`.trim().toLowerCase();
+    const next = this.getCustomTopics(player).filter((topic) => topic.toLowerCase() !== target);
+    writeCoreProperty(player, DP_TOPICS, memoryTopics, JSON.stringify(next));
+  }
+
+  // ---- Player's saved notes ----
+  getNotes(player) {
+    const raw = `${readPlayerProperty(player, DP_NOTES, memoryNotes, "[]") ?? "[]"}`;
+    const parsed = safeJsonParse(raw, []);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter((note) => typeof note === "string" && note.trim().length > 0);
+  }
+
+  addNote(player, text) {
+    const clean = `${text ?? ""}`.trim().slice(0, NOTE_MAX_LEN);
+    if (!clean) {
+      return null;
+    }
+    const next = [...this.getNotes(player), clean];
+    if (next.length > NOTES_MAX) {
+      next.splice(0, next.length - NOTES_MAX);
+    }
+    writeCoreProperty(player, DP_NOTES, memoryNotes, JSON.stringify(next));
+    return clean;
+  }
+
+  removeNote(player, index) {
+    const notes = this.getNotes(player);
+    if (index < 0 || index >= notes.length) {
+      return;
+    }
+    notes.splice(index, 1);
+    writeCoreProperty(player, DP_NOTES, memoryNotes, JSON.stringify(notes));
   }
 
   getTotalMastered(player) {
