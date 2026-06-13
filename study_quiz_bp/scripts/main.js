@@ -1119,6 +1119,70 @@ async function resolveCorrectAnswer(player, config, question) {
   }
 }
 
+// Showing a form the instant a player closes another one can bounce back with
+// "UserBusy". Retry a few times so a follow-up form reliably appears.
+async function showFormResilient(player, form, maxAttempts = 20) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (!isPlayerUsable(player)) {
+      return null;
+    }
+    const response = await form.show(player);
+    if (response.canceled && response.cancelationReason === "UserBusy") {
+      await delayTicks(10);
+      continue;
+    }
+    return response;
+  }
+  return null;
+}
+
+// When a player closes a question with the X, turn it into a study moment:
+// reveal the correct answer and show a short overview of the topic. The recap is
+// AI-generated when available, with a friendly offline fallback. No penalty.
+async function showQuestionOverview(player, config, question) {
+  const correct = question.options[question.answerIndex] ?? "(unknown)";
+  const subject = describeConfigSubject(config);
+
+  // A brief on-screen heads-up while the recap (if any) is fetched.
+  try {
+    player.onScreenDisplay.setActionBar(`${THEME.pink}${THEME.heart} ${THEME.white}Here's a quick overview...`);
+  } catch {
+    /* onScreenDisplay may be unavailable on some runtimes */
+  }
+
+  let recap = null;
+  try {
+    recap = await apiProvider.getSummary(subject, {
+      apiProvider: config.apiProvider,
+      apiEndpoint: config.apiEndpoint,
+      apiModel: config.apiModel,
+      apiKey: config.apiKey
+    });
+  } catch {
+    recap = null;
+  }
+
+  const overviewLine = recap && `${recap}`.trim().length > 0
+    ? `${THEME.gold}${THEME.sparkle} ${THEME.white}${recap}`
+    : `${THEME.gray}Tip: review ${subject} and you'll have this one next time!`;
+
+  const body = [
+    `${THEME.purple}${THEME.star} Topic: ${THEME.white}${subject}`,
+    uiDivider(),
+    `${THEME.white}${question.question}`,
+    `${THEME.green}${THEME.heart} Correct answer: ${THEME.pink}${correct}`,
+    uiDivider(),
+    overviewLine
+  ].join("\n");
+
+  const form = new ActionFormData()
+    .title(uiTitle("Overview"))
+    .body(body)
+    .button(`${THEME.white}${THEME.heart} Got it`);
+
+  await showFormResilient(player, form);
+}
+
 async function askQuestion(player, triggerSource) {
   if (!isPlayerUsable(player)) {
     return;
@@ -1202,7 +1266,11 @@ async function askQuestion(player, triggerSource) {
   pendingPromptByPlayer.delete(playerKey);
 
   if (result.canceled) {
-    sendPlayerMessage(player, "Question closed. No penalty applied.");
+    // "UserBusy" means the game closed the form (e.g. chat opened), not the
+    // player - don't treat that as a deliberate close.
+    if (result.cancelationReason !== "UserBusy") {
+      await showQuestionOverview(player, config, question);
+    }
     return;
   }
 
