@@ -19,6 +19,7 @@ const DP_STREAKS = "sq_streaks";
 const DP_MASTERY = "sq_mastery";
 const DP_SEEN = "sq_seen";
 const DP_STATS = "sq_stats";
+const DP_LESSONS = "sq_lessons";
 
 // World-level (shared) dynamic property holding the teacher's class assignment:
 // the lesson everyone is studying, the difficulty, and whether students may
@@ -40,6 +41,7 @@ const memoryStreaks = new Map();
 const memoryMastery = new Map();
 const memorySeen = new Map();
 const memoryStats = new Map();
+const memoryLessons = new Map();
 
 function playerKey(player) {
   return `${player?.id ?? player?.name ?? "unknown"}`;
@@ -295,6 +297,24 @@ export class PlayerStateStore {
     return stats;
   }
 
+  // ---- Completed lessons (in-game lesson mode) ----
+  getCompletedLessons(player) {
+    const raw = `${readPlayerProperty(player, DP_LESSONS, memoryLessons, "[]") ?? "[]"}`;
+    const parsed = safeJsonParse(raw, []);
+    const list = Array.isArray(parsed) ? parsed : [];
+    return new Set(list.filter((item) => typeof item === "string" && item.length > 0));
+  }
+
+  addCompletedLesson(player, key) {
+    const done = this.getCompletedLessons(player);
+    done.add(`${key}`);
+    writeCoreProperty(player, DP_LESSONS, memoryLessons, JSON.stringify([...done]));
+  }
+
+  getLessonCount(player) {
+    return this.getCompletedLessons(player).size;
+  }
+
   getTotalMastered(player) {
     const masteryMap = this.getMasteryMap(player);
     let total = 0;
@@ -311,10 +331,12 @@ export class PlayerStateStore {
     memoryStreaks.set(id, "{}");
     memoryMastery.set(id, "{}");
     memoryStats.set(id, "{}");
+    memoryLessons.set(id, "[]");
     memorySeen.delete(id);
     writePlayerProperty(player, DP_STREAKS, "{}");
     writePlayerProperty(player, DP_MASTERY, "{}");
     writePlayerProperty(player, DP_STATS, "{}");
+    writePlayerProperty(player, DP_LESSONS, "[]");
     try {
       player.setDynamicProperty(DP_SEEN, undefined);
     } catch {

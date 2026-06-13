@@ -72,6 +72,10 @@ export const PENALTY_MODES = [
 ];
 
 export const MASTERY_STREAK_REQUIRED = 3;
+
+// Coins awarded the first time a player completes a lesson module.
+export const LESSON_REWARD_COINS = 20;
+
 export const STORE_SCOREBOARD_OBJECTIVE = "study_coins";
 
 export const STORE_ITEMS = [

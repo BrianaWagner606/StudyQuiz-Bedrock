@@ -16,6 +16,7 @@ import {
   DIFFICULTY_TIERS,
   ENABLE_WRONG_ANSWER_PENALTY,
   FALLBACK_TOPIC,
+  LESSON_REWARD_COINS,
   MASTERY_STREAK_REQUIRED,
   PENALTY_MODES,
   REFRESH_BATCH_SIZE,
@@ -532,6 +533,7 @@ async function openStatsMenu(player) {
   const coins = getCoinCount(player);
   const stats = state.getStats(player);
   const accuracy = stats.answered > 0 ? Math.round((stats.correct / stats.answered) * 100) : 0;
+  const lessonsDone = state.getLessonCount(player);
   const masteredByTopic = state.getMasteredCountByTopic(player);
   const lines = Object.keys(masteredByTopic).length
     ? Object.entries(masteredByTopic).map(([topic, count]) => `${THEME.pink}${THEME.flower} ${THEME.white}${labelForTopicKey(topic)}: ${THEME.purple}${count}`)
@@ -542,6 +544,7 @@ async function openStatsMenu(player) {
     .body([
       `${THEME.gold}${THEME.heart} Study coins: ${THEME.white}${coins}`,
       `${THEME.green}${THEME.sparkle} Answered: ${THEME.white}${stats.answered} ${THEME.gray}· Correct: ${THEME.white}${stats.correct} ${THEME.gray}· Accuracy: ${THEME.white}${stats.answered > 0 ? accuracy + "%" : "-"}`,
+      `${THEME.purple}${THEME.star} Lessons completed: ${THEME.white}${lessonsDone}`,
       uiDivider(),
       `${THEME.purple}${THEME.star} Mastered by topic:`,
       ...lines
@@ -556,6 +559,181 @@ async function openStatsMenu(player) {
 }
 
 // ---- Curriculum packs: browse structured tech tracks and start a drill ----
+// ---- In-game lesson mode: read short teaching cards, then a check question ----
+async function openLessonsMenu(player) {
+  const areas = listAreas();
+  const form = new ActionFormData()
+    .title(uiTitle("Lessons"))
+    .body(`${THEME.white}Pick a pack to study. You'll read a short lesson, then take a quick check.\n${uiDivider()}`);
+  for (const area of areas) {
+    form.button(`${THEME.white}${area.name}\n${THEME.gray}${area.eyebrow}`);
+  }
+  form.button(`${THEME.white}${THEME.heart} Back`, "textures/ui/arrow_left");
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    return;
+  }
+  if (result.selection === areas.length) {
+    await openMainMenu(player);
+    return;
+  }
+  const area = areas[result.selection];
+  if (area) {
+    await openLessonModules(player, area.id);
+  }
+}
+
+async function openLessonModules(player, areaId) {
+  const area = getArea(areaId);
+  if (!area) {
+    await openLessonsMenu(player);
+    return;
+  }
+  const done = state.getCompletedLessons(player);
+  const form = new ActionFormData()
+    .title(uiTitle(area.name))
+    .body(`${THEME.white}Pick a module to study. ${THEME.green}${THEME.heart}${THEME.gray} = already done.\n${uiDivider()}`);
+  area.modules.forEach((module, idx) => {
+    const check = done.has(`${area.id}:${idx}`) ? ` ${THEME.green}${THEME.heart}` : "";
+    form.button(`${THEME.white}${module.t}${check}`);
+  });
+  form.button(`${THEME.white}${THEME.heart} Back`, "textures/ui/arrow_left");
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    return;
+  }
+  if (result.selection === area.modules.length) {
+    await openLessonsMenu(player);
+    return;
+  }
+  await playLesson(player, area, result.selection);
+}
+
+// Show a single check question (no penalty, no timeout) and report the result.
+async function presentCheckQuestion(player, question) {
+  const options = question.options.map((text, idx) => ({ text, idx }));
+  shuffleInPlace(options);
+  const correctButton = options.findIndex((entry) => entry.idx === question.answerIndex);
+  const numbered = options
+    .map((option, idx) => `${THEME.pink}${idx + 1}.${THEME.white} ${option.text}`)
+    .join("\n");
+
+  const form = new ActionFormData()
+    .title(uiTitle("Quick check"))
+    .body(`${THEME.white}${question.question}\n${uiDivider()}\n${numbered}`);
+  options.forEach((option, idx) => {
+    form.button(`${THEME.white}${wrapButtonLabel(`${idx + 1}. ${option.text}`)}`);
+  });
+
+  const result = await showFormResilient(player, form);
+  if (!result || result.canceled) {
+    return { answered: false, correct: false };
+  }
+  return { answered: true, correct: result.selection === correctButton };
+}
+
+async function playLesson(player, area, moduleIndex) {
+  const module = area.modules[moduleIndex];
+  if (!module) {
+    await openLessonModules(player, area.id);
+    return;
+  }
+
+  const cfg = getEffectiveConfig(player);
+  const subject = getCurriculumSubject(area, cfg.lang);
+  const apiConfig = {
+    apiProvider: cfg.apiProvider,
+    apiEndpoint: cfg.apiEndpoint,
+    apiModel: cfg.apiModel,
+    apiKey: cfg.apiKey
+  };
+
+  try {
+    player.onScreenDisplay.setActionBar(`${THEME.pink}${THEME.heart} ${THEME.white}Preparing your lesson...`);
+  } catch {
+    /* cosmetic */
+  }
+
+  let cards = await apiProvider.getLessonCards(subject, module.t, module.topics, apiConfig);
+  if (!cards || cards.length === 0) {
+    // Offline fallback: an outline built from the module's own topic list.
+    const topics = Array.isArray(module.topics) ? module.topics : [];
+    cards = topics.map((topic) => ({ title: topic, body: `A key idea in ${module.t}. Turn on AI questions for a full explanation.` }));
+    if (cards.length === 0) {
+      cards = [{ title: module.t, body: "Study this module's topics, then take a quiz." }];
+    }
+  }
+
+  for (let i = 0; i < cards.length; i += 1) {
+    if (!isPlayerUsable(player)) {
+      return;
+    }
+    const card = cards[i];
+    const last = i === cards.length - 1;
+    const form = new ActionFormData()
+      .title(uiTitle(module.t))
+      .body([
+        `${THEME.purple}${THEME.star} ${THEME.white}${card.title}`,
+        uiDivider(),
+        `${THEME.white}${card.body}`,
+        "",
+        `${THEME.gray}Page ${i + 1} of ${cards.length}`
+      ].join("\n"))
+      .button(last ? `${THEME.white}${THEME.heart} Take the check` : `${THEME.white}Next ${THEME.flower}`);
+
+    const result = await showFormResilient(player, form);
+    if (!result || result.canceled) {
+      sendPlayerMessage(player, "Lesson paused - come back anytime!");
+      return;
+    }
+  }
+
+  // One check question on the module's topics. No penalty.
+  let checkQuestion = null;
+  try {
+    const fetched = await apiProvider.getQuestions(
+      `${area.id}:${moduleIndex}`,
+      cfg.optionCount,
+      new Set(),
+      apiConfig,
+      [],
+      { subject, difficulty: cfg.difficulty, focus: (module.topics ?? []).join("; ") }
+    );
+    checkQuestion = fetched.questions?.[0] ?? null;
+  } catch {
+    checkQuestion = null;
+  }
+
+  const lessonKey = `${area.id}:${moduleIndex}`;
+  const alreadyDone = state.getCompletedLessons(player).has(lessonKey);
+
+  if (checkQuestion) {
+    const outcome = await presentCheckQuestion(player, checkQuestion);
+    if (outcome.answered && outcome.correct) {
+      sendPlayerMessage(player, `${THEME.green}Correct! ${THEME.white}Lesson complete.`);
+    } else if (outcome.answered) {
+      const answer = checkQuestion.options[checkQuestion.answerIndex] ?? "(unknown)";
+      sendPlayerMessage(player, `${THEME.gray}The answer was ${THEME.pink}${answer}${THEME.gray}. Lesson complete - review and try the quiz!`);
+    } else {
+      sendPlayerMessage(player, "Lesson complete!");
+    }
+  } else {
+    sendPlayerMessage(player, "Lesson complete!");
+  }
+
+  // Award coins only the first time, so a lesson can't be farmed by re-reading.
+  // Re-studying is still free and encouraged.
+  state.addCompletedLesson(player, lessonKey);
+  if (alreadyDone) {
+    sendPlayerMessage(player, `${THEME.gray}You already earned coins for this lesson - nice review!`);
+  } else {
+    giveCoins(player, LESSON_REWARD_COINS);
+    sendPlayerMessage(player, `${THEME.gold}${THEME.heart} +${LESSON_REWARD_COINS} coins for completing ${THEME.pink}${module.t}${THEME.gold}!`);
+  }
+}
+
 async function openCurriculumMenu(player) {
   const areas = listAreas();
   const form = new ActionFormData()
@@ -1320,6 +1498,7 @@ async function openMainMenu(player) {
   const actions = [
     { label: `${THEME.white}${THEME.heart} Take a Quiz`, icon: "textures/items/book_enchanted", run: () => askQuestion(player, "manual") },
     { label: `${THEME.white}${THEME.sparkle} Curriculum`, icon: "textures/items/book_portfolio", run: () => openCurriculumMenu(player) },
+    { label: `${THEME.white}${THEME.star} Lessons`, icon: "textures/items/book_normal", run: () => openLessonsMenu(player) },
     { label: `${THEME.white}${THEME.flower} Settings`, icon: "textures/items/comparator", run: () => openSettingsMenu(player) },
     { label: `${THEME.white}${THEME.sparkle} Store`, icon: "textures/items/emerald", run: () => openStoreMenu(player) },
     { label: `${THEME.white}${THEME.star} My Stats`, icon: "textures/items/book_writable", run: () => openStatsMenu(player) }

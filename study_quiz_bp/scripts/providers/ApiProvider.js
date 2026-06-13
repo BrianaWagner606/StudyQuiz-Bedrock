@@ -422,6 +422,90 @@ export class ApiProvider extends QuestionProvider {
     }
   }
 
+  // Generic chat request (Anthropic- or OpenAI-shaped) for free-text features
+  // like lessons. Questions still use their own dedicated builders.
+  buildChatRequest(config, systemPrompt, userPrompt, maxTokens, temperature) {
+    if (this.shouldUseAnthropic(config)) {
+      const payload = {
+        model: config.model,
+        max_tokens: maxTokens,
+        temperature,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }]
+      };
+      const request = new HttpRequest(config.endpoint || ANTHROPIC_ENDPOINT);
+      request.method = HttpRequestMethod.Post;
+      request.headers = [
+        new HttpHeader("Content-Type", "application/json"),
+        new HttpHeader("x-api-key", `${config.apiKey ?? ""}`),
+        new HttpHeader("anthropic-version", "2023-06-01")
+      ];
+      request.body = JSON.stringify(payload);
+      return request;
+    }
+
+    const payload = {
+      model: config.model,
+      temperature,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ]
+    };
+    const request = new HttpRequest(config.endpoint);
+    request.method = HttpRequestMethod.Post;
+    request.headers = [
+      new HttpHeader("Content-Type", "application/json"),
+      new HttpHeader("Authorization", `Bearer ${config.apiKey}`)
+    ];
+    request.body = JSON.stringify(payload);
+    return request;
+  }
+
+  // A short, paged lesson for in-game lesson mode. Returns an array of
+  // { title, body } cards, or null when AI isn't available (caller falls back).
+  async getLessonCards(subject, moduleTitle, topics, overrideConfig = null) {
+    const config = this.resolveConfig(overrideConfig);
+    if (!config) {
+      return null;
+    }
+
+    const topicList = Array.isArray(topics)
+      ? topics.filter((t) => `${t ?? ""}`.trim()).join("; ")
+      : "";
+    const system = "You are a friendly teacher who writes short, clear, accurate lessons for students.";
+    const userPrompt = [
+      `Write a short, beginner-friendly lesson on "${moduleTitle}" within the subject: ${subject}.`,
+      topicList ? `Cover these points: ${topicList}.` : "",
+      'Return ONLY a JSON array of 3 to 5 cards. Each item: { "title": "short heading", "body": "2-3 sentence plain-text explanation" }.',
+      "Plain text only inside the strings - no markdown, and nothing outside the JSON array."
+    ].filter(Boolean).join("\n");
+
+    try {
+      const request = this.buildChatRequest(config, system, userPrompt, 900, 0.5);
+      const response = await http.request(request);
+      if ((response?.status ?? -1) < 200 || response.status >= 300) {
+        return null;
+      }
+      const arr = parseQuestionsFromApiText(response?.body ?? "");
+      if (!Array.isArray(arr)) {
+        return null;
+      }
+      const cards = [];
+      for (const item of arr) {
+        const body = `${item?.body ?? item?.text ?? ""}`.trim();
+        if (!body) {
+          continue;
+        }
+        cards.push({ title: `${item?.title ?? ""}`.trim() || "Note", body });
+      }
+      return cards.length > 0 ? cards : null;
+    } catch (error) {
+      console.warn(`[StudyQuiz] Lesson request failed: ${error}`);
+      return null;
+    }
+  }
+
   async getQuestions(topic, optionCount, excludeIds = new Set(), overrideConfig = null, avoidTexts = [], meta = {}) {
     const config = this.resolveConfig(overrideConfig);
     if (!config) {
