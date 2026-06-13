@@ -1,78 +1,90 @@
 # 💖 Study Quiz — Minecraft Bedrock Add-On
 
-A cute, pink aesthetics (Planning on adding different colors but pink is my favorite) **study-quiz** add-on for **Bedrock Dedicated Server (BDS)**. 
+A cute, pink study-quiz add-on for Minecraft **Bedrock Dedicated Server**. (I'm
+planning to add more colors, but pink is my favorite!)
 
-Players answer pop quizzes while they play, earn an adorable **pink Study Coin**, spend coins in an
-in-game **Store**, and risk dropping their coins on a wrong answer.
-
-Works **offline** with built-in questions, with optional **live AI** for endless,
-any-subject questions.
-
----
-
-## ⬇️ Download & install
-
-> **Requires a [Bedrock Dedicated Server (BDS)](https://www.minecraft.net/en-us/download/server/bedrock) 1.21.80+** — this is a server add-on, not a Realms or regular-client mod.
-
-### 👉 [**Download the latest release**](https://github.com/BrianaWagner606/StudyQuiz-Bedrock/releases/latest)
-
-- **Easiest:** grab **`StudyQuiz-Full-Project.zip`**, unzip it, run **`install-bds.bat`**, and paste your BDS folder path. It copies both packs *and* sets `permissions.json` for you (the step people most often miss).
-- **One-click packs:** grab **`StudyQuiz.mcaddon`**, import it, attach both packs to your world, and allow the script modules in `config/default/permissions.json`.
-
-Restart the server and it works **offline immediately**. **Players install nothing** — just join a server that runs it and use the **Study Settings book** in your inventory (or `/scriptevent study:open`).
-
-👉 Full steps & troubleshooting: **[USER_GUIDE.md](USER_GUIDE.md)**  ·  AI questions are **bring-your-own-key** — see **[SECURITY.md](SECURITY.md)**.
+While you play, little pop quizzes show up. Get one right and you earn a pink
+**Study Coin** you can spend in the in-game store. Get one wrong and you drop
+some items, so it's worth paying attention. It works offline out of the box, and
+you can optionally hook up AI for endless questions on any subject.
 
 ---
 
-## ✨ Features
-- Timed pop quizzes with a 3-2-1 countdown before the user is prompted with the question so they can prepare while in game.
-- Collectible **pink Study Coin** item (real inventory item)
-- Multi-category **Store** (Food / Materials / Premium items)
-- Configurable wrong-answer penalty (held item / hotbar / full inventory)
-- Per-player settings, coins, mastery, accuracy & stats
-- **Curriculum packs** — ready-made tech tracks (Cloud/IaC, DevOps/SRE, AI-ML, Security, Data, Programming Languages, System Design, CS Fundamentals)
-- **Difficulty tiers** — foundational / associate / pro / mixed, fed into the AI
-- **Teacher tools** (tag a player `sq_admin`) — assign a lesson to the whole class, lock topic/difficulty, view a class roster, reset a student
-- Optional AI-generated questions via a secure local gateway
+## Download & install
+
+> You need a **Bedrock Dedicated Server (BDS)**, version 1.21.80 or newer. This
+> is a server add-on, not something you load in a normal single-player world.
+
+👉 **[Download the latest release](https://github.com/BrianaWagner606/StudyQuiz-Bedrock/releases/latest)**
+
+- **Easiest:** grab `StudyQuiz-Full-Project.zip`, unzip it, run `install-bds.bat`,
+  and paste the path to your server folder. It copies the packs and sets up the
+  permissions file for you.
+- **Just the packs:** grab `StudyQuiz.mcaddon`, import it, add both packs to your
+  world, and allow the script modules in `config/default/permissions.json`.
+
+Then start your server and it works right away. Players don't install anything —
+they just join and use the **Study Settings book** in their inventory.
+
+Full steps and troubleshooting are in the [User Guide](USER_GUIDE.md).
 
 ---
 
-## 📦 What's in this project
+## What you can do
+
+- 🎀 Pop quizzes while you play, with a little 3-2-1 countdown first
+- 💖 Earn a pink Study Coin for every right answer
+- 🛍️ Spend coins in a store (food, materials, premium stuff)
+- ⚠️ Drop items when you get one wrong (you choose how much)
+- 🏆 "Master" a question by getting it right 3 times; track your accuracy
+- 📚 **Curriculum packs** — ready-made study tracks (cloud, DevOps, AI/ML,
+  security, data, programming languages, system design, CS basics)
+- 🎚️ Pick a **difficulty** (foundational, associate, pro, or mixed)
+- 📖 Close a question and get a quick **overview** of the topic plus the answer —
+  a nice way to learn instead of guessing
+- 🧑‍🏫 **Teacher tools** — set one lesson for the whole class, see everyone's
+  progress, and reset a student
+- 🤖 Optional AI questions (see below)
+
+Everyone has their own coins, settings, and progress.
+
+---
+
+## AI questions (optional)
+
+Out of the box, quizzes use the built-in question set, so you don't need anything
+extra. If you want endless AI-generated questions (this is what powers the
+curriculum packs), you have two choices:
+
+- **Local helper** — run the little program in [`proxy/`](proxy/) with your own
+  API key. Simple, runs on the same PC as your server.
+- **Cloud** — deploy the optional AWS backend in [`cloud/`](cloud/). A bit more
+  setup, but then there's no helper to start, and you get a teacher dashboard and
+  shared progress across servers.
+
+Either way, **your API key stays yours** and never goes into the game files.
+
+---
+
+## What's in here
+
 ```
-study_quiz_bp/      Behavior pack (game logic, scripts, coin item)
-study_quiz_rp/      Resource pack (pink coin texture)
-proxy/              Optional local AI gateway (keeps your API key out of the game)
-cloud/              Optional AWS backend (serverless gateway, cross-server progress, teacher dashboard, analytics)
-tools/              Dev scripts (texture & icon generators)
-dist/               Packaged add-on for sharing (.mcaddon)
-USER_GUIDE.md       Full setup + how-to-play guide
+study_quiz_bp/   The behavior pack (the game logic)
+study_quiz_rp/   The resource pack (the pink coin texture)
+proxy/           Optional local AI helper
+cloud/           Optional AWS backend (dashboard, shared progress)
+tools/           Build scripts
+USER_GUIDE.md    Full setup + how to play
+SECURITY.md      Read this before you publish your own copy
 ```
 
 ---
 
-## ☁️ Optional cloud backend
-Want it to scale past one PC? The [`cloud/`](cloud/) folder has a Terraform-deployed
-**AWS** backend: a serverless AI gateway (Lambda + API Gateway, key in Secrets
-Manager), a shared **DynamoDB** question cache, **cross-server progress +
-leaderboard**, a **teacher dashboard** (S3 + CloudFront), and **analytics** (S3 +
-Athena). It's optional — the add-on runs fully local without it. See
-[cloud/README.md](cloud/README.md).
+## Sharing this yourself?
 
-## 🔒 Security note
-Your AI API key lives **only** in `proxy/anthropic-key.txt` (local) or **AWS
-Secrets Manager** (cloud) — never in a pack file.
-
-**Publishing this on GitHub?** Read [SECURITY.md](SECURITY.md) first. Short
-version: ship code, not secrets — others run their own proxy/backend with their
-own key ("Bring Your Own"). Enable the secret guard once per clone with
-`git config core.hooksPath .githooks`.
-
----
-
-## 🎮 Requirements
-- Bedrock Dedicated Server 1.21.80+ (tested on 1.26.x)
-- *(AI only)* Node.js + an AI provider API key
+If you fork or publish this, please read [SECURITY.md](SECURITY.md) first. The
+short version: share the code, not your keys. Anyone who wants AI runs their own
+helper or backend with their own key.
 
 ---
 
