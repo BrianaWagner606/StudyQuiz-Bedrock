@@ -1,4 +1,5 @@
-import { DEFAULT_CONFIG } from "./constants.js";
+import { world } from "@minecraft/server";
+import { DEFAULT_CONFIG, DEFAULT_DIFFICULTY, DIFFICULTY_TIERS } from "./constants.js";
 import { safeJsonParse } from "./utils.js";
 import {
   USER_API_KEY,
@@ -17,6 +18,12 @@ const DP_COINS = "sq_coins";
 const DP_STREAKS = "sq_streaks";
 const DP_MASTERY = "sq_mastery";
 const DP_SEEN = "sq_seen";
+const DP_STATS = "sq_stats";
+
+// World-level (shared) dynamic property holding the teacher's class assignment:
+// the lesson everyone is studying, the difficulty, and whether students may
+// change it. See ClassStore below.
+const WP_CLASS = "sq_class";
 
 // Cap on how many recent question texts we remember per topic, and how much of
 // each we keep. These are fed back to the AI as an "avoid these" list so it
@@ -32,6 +39,7 @@ const memoryCoins = new Map();
 const memoryStreaks = new Map();
 const memoryMastery = new Map();
 const memorySeen = new Map();
+const memoryStats = new Map();
 
 function playerKey(player) {
   return `${player?.id ?? player?.name ?? "unknown"}`;
@@ -98,6 +106,14 @@ function normalizeConfig(raw, availableTopics) {
     ? cfg.penaltyMode
     : DEFAULT_CONFIG.penaltyMode;
 
+  const difficulty = DIFFICULTY_TIERS.some((tier) => tier.value === cfg.difficulty)
+    ? cfg.difficulty
+    : DEFAULT_DIFFICULTY;
+
+  // Curriculum pack the player is studying (empty = plain free-text topic).
+  const curriculumId = typeof cfg.curriculumId === "string" ? cfg.curriculumId.trim() : "";
+  const lang = typeof cfg.lang === "string" ? cfg.lang.trim() : "";
+
   const apiProvider = ["anthropic", "openai", "openrouter", "openai_compatible"].includes(cfg.apiProvider)
     ? cfg.apiProvider
     : (FILE_API_PROVIDER || DEFAULT_CONFIG.apiProvider);
@@ -117,6 +133,9 @@ function normalizeConfig(raw, availableTopics) {
     topic,
     optionCount: Number.isFinite(cfg.optionCount) ? Math.max(2, Math.min(6, Math.round(cfg.optionCount))) : DEFAULT_CONFIG.optionCount,
     penaltyMode,
+    difficulty,
+    curriculumId,
+    lang,
     apiProvider: fileMode && FILE_API_PROVIDER ? FILE_API_PROVIDER : apiProvider,
     apiEndpoint: FILE_API_ENDPOINT || (typeof cfg.apiEndpoint === "string" ? cfg.apiEndpoint.trim() : DEFAULT_CONFIG.apiEndpoint),
     apiModel: FILE_API_MODEL || (typeof cfg.apiModel === "string" ? cfg.apiModel.trim() : DEFAULT_CONFIG.apiModel),
@@ -252,5 +271,101 @@ export class PlayerStateStore {
     }
     seenMap[topic] = next;
     this.setSeenMap(player, seenMap);
+  }
+
+  // ---- Lifetime answer stats (powers accuracy in My Stats + the roster) ----
+  getStats(player) {
+    const raw = `${readPlayerProperty(player, DP_STATS, memoryStats, "{}") ?? "{}"}`;
+    const parsed = safeJsonParse(raw, {});
+    const answered = Number(parsed?.answered ?? 0);
+    const correct = Number(parsed?.correct ?? 0);
+    return {
+      answered: Number.isInteger(answered) && answered > 0 ? answered : 0,
+      correct: Number.isInteger(correct) && correct > 0 ? correct : 0
+    };
+  }
+
+  recordAnswer(player, wasCorrect) {
+    const stats = this.getStats(player);
+    stats.answered += 1;
+    if (wasCorrect) {
+      stats.correct += 1;
+    }
+    writeCoreProperty(player, DP_STATS, memoryStats, JSON.stringify(stats));
+    return stats;
+  }
+
+  getTotalMastered(player) {
+    const masteryMap = this.getMasteryMap(player);
+    let total = 0;
+    for (const ids of Object.values(masteryMap)) {
+      total += Array.isArray(ids) ? ids.length : 0;
+    }
+    return total;
+  }
+
+  // Wipe a student's progress (mastery, streaks, seen, stats). Coins are real
+  // inventory items, so they are intentionally left alone here.
+  resetPlayer(player) {
+    const id = playerKey(player);
+    memoryStreaks.set(id, "{}");
+    memoryMastery.set(id, "{}");
+    memoryStats.set(id, "{}");
+    memorySeen.delete(id);
+    writePlayerProperty(player, DP_STREAKS, "{}");
+    writePlayerProperty(player, DP_MASTERY, "{}");
+    writePlayerProperty(player, DP_STATS, "{}");
+    try {
+      player.setDynamicProperty(DP_SEEN, undefined);
+    } catch {
+      // best effort
+    }
+  }
+}
+
+// Shared, world-level class assignment set by a teacher. When `active` is true
+// every player studies the assigned lesson; when `locked` is also true they
+// cannot change the topic/difficulty themselves.
+export class ClassStore {
+  get() {
+    let raw = "";
+    try {
+      raw = `${world.getDynamicProperty(WP_CLASS) ?? ""}`;
+    } catch {
+      raw = "";
+    }
+    const parsed = safeJsonParse(raw, null);
+    if (!parsed || typeof parsed !== "object" || !parsed.active) {
+      return null;
+    }
+    return {
+      active: true,
+      locked: Boolean(parsed.locked),
+      topicKey: `${parsed.topicKey ?? ""}`.trim(),
+      subject: `${parsed.subject ?? ""}`.trim(),
+      curriculumId: `${parsed.curriculumId ?? ""}`.trim(),
+      lang: `${parsed.lang ?? ""}`.trim(),
+      difficulty: DIFFICULTY_TIERS.some((tier) => tier.value === parsed.difficulty)
+        ? parsed.difficulty
+        : DEFAULT_DIFFICULTY
+    };
+  }
+
+  set(assignment) {
+    try {
+      world.setDynamicProperty(WP_CLASS, JSON.stringify({ active: true, ...assignment }));
+      return true;
+    } catch (error) {
+      console.warn(`[StudyQuiz] Could not save class assignment: ${error}`);
+      return false;
+    }
+  }
+
+  clear() {
+    try {
+      world.setDynamicProperty(WP_CLASS, undefined);
+    } catch {
+      // best effort
+    }
   }
 }

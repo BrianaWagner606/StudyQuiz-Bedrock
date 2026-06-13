@@ -5,6 +5,15 @@ proxy/anthropic-key.txt.txt
 proxy/*-key.txt
 proxy/*-key.txt.txt
 
+# --- Terraform: never commit state (holds your key in plaintext) or var files ---
+# Catch-all so secrets can't be committed from anywhere in the tree.
+**/.terraform/
+**/terraform.tfvars
+**/*.auto.tfvars
+**/*.tfstate
+**/*.tfstate.*
+**/.build/
+
 # --- Build output: ignore everything except the shareable add-on ---
 dist/*
 !dist/StudyQuiz.mcaddon

@@ -9,8 +9,11 @@ import {
   ModalFormData
 } from "@minecraft/server-ui";
 import {
+  ADMIN_TAG,
   COMMAND_OPEN_MENU,
   DEFAULT_CONFIG,
+  DEFAULT_DIFFICULTY,
+  DIFFICULTY_TIERS,
   ENABLE_WRONG_ANSWER_PENALTY,
   FALLBACK_TOPIC,
   MASTERY_STREAK_REQUIRED,
@@ -21,15 +24,30 @@ import {
   STORE_SCOREBOARD_OBJECTIVE,
   THEME
 } from "./constants.js";
-import { PlayerStateStore } from "./state.js";
+import { ClassStore, PlayerStateStore } from "./state.js";
 import { ApiProvider } from "./providers/ApiProvider.js";
 import { BundledProvider } from "./providers/BundledProvider.js";
 import { getBundledTopicNames } from "./questions/bundledTopics.js";
+import {
+  getArea,
+  getCurriculumSubject,
+  getCurriculumTopicKey,
+  listAreas,
+  pickFocus
+} from "./questions/curriculum.js";
+import {
+  fetchClass as cloudFetchClass,
+  isCloudEnabled,
+  pushClass as cloudPushClass,
+  pushProfile as cloudPushProfile,
+  sendEvents as cloudSendEvents
+} from "./cloudSync.js";
 import { nowMs, shuffleInPlace, wrapButtonLabel } from "./utils.js";
 
 const bundledProvider = new BundledProvider();
 const apiProvider = new ApiProvider(bundledProvider);
 const state = new PlayerStateStore();
+const classStore = new ClassStore();
 
 const topicPoolByPlayer = new Map();
 const askedSessionIdsByPlayer = new Map();
@@ -38,6 +56,11 @@ const lastPromptMsByPlayer = new Map();
 const liveUnavailableNotifiedByPlayer = new Set();
 const lastFetchIssueByPlayerAndTopic = new Map();
 const lastMenuOpenMsByPlayer = new Map();
+
+// Cloud sync buffers (only used when USER_CLOUD_API_BASE is set). Profiles are
+// pushed when a player's progress changes; answer events are batched.
+const cloudDirtyPlayers = new Set();
+const cloudEventQueue = [];
 let coinObjective = null;
 // Whether the in-chat "!study" command actually hooked. On some BDS runtimes the
 // chat event isn't available, so we tell players to use the book instead.
@@ -110,6 +133,115 @@ function updatePlayerConfig(player, mutator) {
 
 function hasPlayerLiveConfig(config) {
   return Boolean(config?.apiKey);
+}
+
+function isAdmin(player) {
+  try {
+    return player.hasTag(ADMIN_TAG);
+  } catch {
+    return false;
+  }
+}
+
+function difficultyLabel(value) {
+  return DIFFICULTY_TIERS.find((tier) => tier.value === value)?.label ?? value;
+}
+
+// The config a quiz actually runs with: the player's saved preferences, with a
+// teacher's class assignment layered on top when one is active. Extra `class*`
+// fields are NON-persisted hints for the UI/fetch path; never feed this object
+// back into state.setConfig (that would bake the override into player prefs).
+function getEffectiveConfig(player) {
+  const cfg = state.getConfig(player, getAvailableTopics());
+  const cls = classStore.get();
+  if (cls && cls.active) {
+    cfg.topic = cls.topicKey || cfg.topic;
+    cfg.curriculumId = cls.curriculumId || "";
+    cfg.lang = cls.lang || cfg.lang;
+    cfg.difficulty = cls.difficulty || cfg.difficulty;
+    cfg.classActive = true;
+    cfg.classLocked = cls.locked;
+    cfg.classSubject = cls.subject;
+  }
+  return cfg;
+}
+
+// Turn a stored topic key (which may be a curriculum id like "cloud" or a
+// per-language key like "lang_python") into a friendly display label.
+function labelForTopicKey(key) {
+  const direct = getArea(key);
+  if (direct) {
+    return direct.name;
+  }
+  if (`${key}`.startsWith("lang_")) {
+    const langArea = listAreas().find((area) => Array.isArray(area.langs));
+    const match = langArea?.langs.find((lang) => getCurriculumTopicKey(langArea, lang) === key);
+    if (match) {
+      return match;
+    }
+  }
+  return key;
+}
+
+// Human-readable subject + a label for menus, derived from a (possibly
+// curriculum-backed) config.
+function describeConfigSubject(config) {
+  if (config.curriculumId) {
+    const area = getArea(config.curriculumId);
+    if (area) {
+      return getCurriculumSubject(area, config.lang);
+    }
+  }
+  return config.classSubject || config.topic;
+}
+
+// Build the AI hint bundle (subject + difficulty + rotating focus) for a fetch.
+function resolveQuizMeta(config) {
+  const difficulty = config.difficulty || DEFAULT_DIFFICULTY;
+  if (config.curriculumId) {
+    const area = getArea(config.curriculumId);
+    if (area) {
+      return {
+        subject: getCurriculumSubject(area, config.lang),
+        difficulty,
+        focus: pickFocus(area)
+      };
+    }
+  }
+  return { subject: config.topic, difficulty, focus: "" };
+}
+
+// ---- Cloud sync (no-ops unless USER_CLOUD_API_BASE is set) ----
+function buildProfileSnapshot(player) {
+  const stats = state.getStats(player);
+  return {
+    name: player.name,
+    answered: stats.answered,
+    correct: stats.correct,
+    masteredTotal: state.getTotalMastered(player),
+    coins: getCoinCount(player),
+    perTopic: state.getMasteredCountByTopic(player)
+  };
+}
+
+// Mark a player's profile dirty and log an answer event for the next flush.
+function recordCloudAnswer(player, config, correct) {
+  if (!isCloudEnabled()) {
+    return;
+  }
+  cloudDirtyPlayers.add(player.id);
+  if (cloudEventQueue.length < 200) {
+    cloudEventQueue.push({
+      type: "answer",
+      xuid: player.id,
+      name: player.name,
+      topic: config.topic,
+      difficulty: config.difficulty,
+      curriculumId: config.curriculumId || "",
+      correct: Boolean(correct),
+      ts: nowMs()
+    });
+  }
 }
 
 // ---- UI theme helpers (girly, pink, cute, but clean & readable) ----
@@ -299,6 +431,11 @@ function ensureSettingsItem(player) {
 
 async function openSettingsMenu(player) {
   const cfg = state.getConfig(player, getAvailableTopics());
+  const cls = classStore.get();
+  // When a teacher has locked the lesson, students cannot change the topic or
+  // difficulty; those controls are hidden and the rest stay editable.
+  const lessonLocked = Boolean(cls && cls.active && cls.locked);
+
   // Interval values are in minutes; sub-minute options use fractions.
   const intervalChoices = [0.25, 0.5, 0.75, 1, 3, 5, 10, 15, 20, 30, 45, 60];
   const intervalLabels = ["15 sec", "30 sec", "45 sec", "1 min", "3 min", "5 min", "10 min", "15 min", "20 min", "30 min", "45 min", "60 min"];
@@ -312,17 +449,40 @@ async function openSettingsMenu(player) {
   const answerIndex = Math.max(0, answerChoices.indexOf(cfg.answerSec));
   const optionIndex = Math.max(0, optionChoices.indexOf(cfg.optionCount));
   const penaltyIndex = Math.max(0, PENALTY_MODES.findIndex((mode) => mode.value === cfg.penaltyMode));
+  const difficultyIndex = Math.max(0, DIFFICULTY_TIERS.findIndex((tier) => tier.value === cfg.difficulty));
 
-  // AI provider/endpoint/model are managed by the server proxy, so Settings only
-  // exposes the quiz-behavior options a player can actually control.
-  const form = new ModalFormData()
-    .title(uiTitle("Settings"))
-    .dropdown(`${THEME.white}${THEME.flower} Quiz interval`, intervalLabels, { defaultValueIndex: intervalIndex })
-    .dropdown(`${THEME.white}${THEME.flower} Answer time limit (seconds)`, answerChoices.map((v) => `${v}`), { defaultValueIndex: answerIndex })
-    .textField(`${THEME.white}${THEME.flower} Topic (type anything)`, cfg.topic ?? FALLBACK_TOPIC)
-    .dropdown(`${THEME.white}${THEME.flower} Options per question`, optionChoices.map((v) => `${v}`), { defaultValueIndex: optionIndex })
-    .dropdown(`${THEME.white}${THEME.flower} Penalty mode`, PENALTY_MODES.map((mode) => mode.label), { defaultValueIndex: penaltyIndex })
-    .label(getLiveStatusLine(cfg));
+  // If a curriculum pack is selected, the topic field is shown blank and the
+  // pack is named in a label - players switch packs from the Curriculum menu.
+  const studyingPack = cfg.curriculumId ? getArea(cfg.curriculumId) : null;
+  const topicFieldDefault = studyingPack ? "" : (cfg.topic ?? FALLBACK_TOPIC);
+
+  // Track which form field index maps to which setting, since topic/difficulty
+  // are omitted when the lesson is locked.
+  const fieldOrder = [];
+  const form = new ModalFormData().title(uiTitle("Settings"));
+
+  form.dropdown(`${THEME.white}${THEME.flower} Quiz interval`, intervalLabels, { defaultValueIndex: intervalIndex });
+  fieldOrder.push("interval");
+  form.dropdown(`${THEME.white}${THEME.flower} Answer time limit (seconds)`, answerChoices.map((v) => `${v}`), { defaultValueIndex: answerIndex });
+  fieldOrder.push("answer");
+
+  if (lessonLocked) {
+    form.label(`${THEME.purple}${THEME.star} Lesson set by teacher: ${THEME.white}${cls.subject || cls.topicKey} ${THEME.gray}(${difficultyLabel(cls.difficulty)})`);
+  } else {
+    if (studyingPack) {
+      form.label(`${THEME.purple}${THEME.star} Studying pack: ${THEME.white}${getCurriculumSubject(studyingPack, cfg.lang)}\n${THEME.gray}Type a topic below to switch to free study, or pick another pack in Curriculum.`);
+    }
+    form.textField(`${THEME.white}${THEME.flower} Topic (type anything)`, topicFieldDefault);
+    fieldOrder.push("topic");
+    form.dropdown(`${THEME.white}${THEME.flower} Difficulty`, DIFFICULTY_TIERS.map((tier) => tier.label), { defaultValueIndex: difficultyIndex });
+    fieldOrder.push("difficulty");
+  }
+
+  form.dropdown(`${THEME.white}${THEME.flower} Options per question`, optionChoices.map((v) => `${v}`), { defaultValueIndex: optionIndex });
+  fieldOrder.push("options");
+  form.dropdown(`${THEME.white}${THEME.flower} Penalty mode`, PENALTY_MODES.map((mode) => mode.label), { defaultValueIndex: penaltyIndex });
+  fieldOrder.push("penalty");
+  form.label(getLiveStatusLine(cfg));
 
   const result = await form.show(player);
   if (result.canceled) {
@@ -330,35 +490,58 @@ async function openSettingsMenu(player) {
   }
 
   const values = result.formValues;
-  if (!values || values.length < 5) {
+  if (!values) {
     return;
   }
 
-  const topicInput = `${values[2] ?? ""}`.trim();
+  const valueOf = (name) => {
+    const idx = fieldOrder.indexOf(name);
+    return idx === -1 ? undefined : values[idx];
+  };
 
-  updatePlayerConfig(player, (prev) => ({
-    ...prev,
-    intervalMin: intervalChoices[Math.round(values[0])] ?? cfg.intervalMin,
-    answerSec: answerChoices[Math.round(values[1])] ?? cfg.answerSec,
-    topic: topicInput.length > 0 ? topicInput : cfg.topic,
-    optionCount: optionChoices[Math.round(values[3])] ?? cfg.optionCount,
-    penaltyMode: PENALTY_MODES[Math.round(values[4])]?.value ?? cfg.penaltyMode
-  }));
+  const topicInput = `${valueOf("topic") ?? ""}`.trim();
+
+  updatePlayerConfig(player, (prev) => {
+    const next = {
+      ...prev,
+      intervalMin: intervalChoices[Math.round(valueOf("interval"))] ?? cfg.intervalMin,
+      answerSec: answerChoices[Math.round(valueOf("answer"))] ?? cfg.answerSec,
+      optionCount: optionChoices[Math.round(valueOf("options"))] ?? cfg.optionCount,
+      penaltyMode: PENALTY_MODES[Math.round(valueOf("penalty"))]?.value ?? cfg.penaltyMode
+    };
+    if (!lessonLocked) {
+      const difficultyValue = DIFFICULTY_TIERS[Math.round(valueOf("difficulty"))]?.value;
+      if (difficultyValue) {
+        next.difficulty = difficultyValue;
+      }
+      // A non-empty topic field means "switch to this free topic" and leaves any
+      // curriculum pack behind; an empty field keeps the current pack/topic.
+      if (topicInput.length > 0) {
+        next.topic = topicInput;
+        next.curriculumId = "";
+        next.lang = "";
+      }
+    }
+    return next;
+  });
 
   sendPlayerMessage(player, "Settings saved.");
 }
 
 async function openStatsMenu(player) {
   const coins = getCoinCount(player);
+  const stats = state.getStats(player);
+  const accuracy = stats.answered > 0 ? Math.round((stats.correct / stats.answered) * 100) : 0;
   const masteredByTopic = state.getMasteredCountByTopic(player);
   const lines = Object.keys(masteredByTopic).length
-    ? Object.entries(masteredByTopic).map(([topic, count]) => `${THEME.pink}${THEME.flower} ${THEME.white}${topic}: ${THEME.purple}${count}`)
+    ? Object.entries(masteredByTopic).map(([topic, count]) => `${THEME.pink}${THEME.flower} ${THEME.white}${labelForTopicKey(topic)}: ${THEME.purple}${count}`)
     : [`${THEME.gray}none yet - go take a quiz!`];
 
   const form = new MessageFormData()
     .title(uiTitle("My Stats"))
     .body([
       `${THEME.gold}${THEME.heart} Study coins: ${THEME.white}${coins}`,
+      `${THEME.green}${THEME.sparkle} Answered: ${THEME.white}${stats.answered} ${THEME.gray}· Correct: ${THEME.white}${stats.correct} ${THEME.gray}· Accuracy: ${THEME.white}${stats.answered > 0 ? accuracy + "%" : "-"}`,
       uiDivider(),
       `${THEME.purple}${THEME.star} Mastered by topic:`,
       ...lines
@@ -370,6 +553,302 @@ async function openStatsMenu(player) {
   if (!result.canceled && result.selection === 0) {
     await openMainMenu(player);
   }
+}
+
+// ---- Curriculum packs: browse structured tech tracks and start a drill ----
+async function openCurriculumMenu(player) {
+  const areas = listAreas();
+  const form = new ActionFormData()
+    .title(uiTitle("Curriculum"))
+    .body(`${THEME.white}Pick a study pack. Questions are generated to match the pack and your chosen difficulty.\n${uiDivider()}`);
+
+  for (const area of areas) {
+    form.button(`${THEME.white}${area.name}\n${THEME.gray}${area.eyebrow}`);
+  }
+  form.button(`${THEME.white}${THEME.heart} Back`, "textures/ui/arrow_left");
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    return;
+  }
+  if (result.selection === areas.length) {
+    await openMainMenu(player);
+    return;
+  }
+  const area = areas[result.selection];
+  if (area) {
+    await openCurriculumArea(player, area.id);
+  }
+}
+
+async function openCurriculumArea(player, areaId) {
+  const area = getArea(areaId);
+  if (!area) {
+    await openCurriculumMenu(player);
+    return;
+  }
+
+  const moduleLines = area.modules.map((m) => `${THEME.pink}${THEME.flower} ${THEME.white}${m.t}`);
+  const certLines = area.certs.map((c) => `${THEME.gray}• ${c}`);
+
+  const form = new ActionFormData()
+    .title(uiTitle(area.name))
+    .body([
+      `${THEME.white}${area.desc}`,
+      uiDivider(),
+      `${THEME.purple}${THEME.star} Modules:`,
+      ...moduleLines,
+      uiDivider(),
+      `${THEME.gold}${THEME.heart} Targets / proof:`,
+      ...certLines
+    ].join("\n"))
+    .button(`${THEME.white}${THEME.sparkle} Start drill`, "textures/items/book_enchanted")
+    .button(`${THEME.white}${THEME.heart} Back`, "textures/ui/arrow_left");
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    return;
+  }
+  if (result.selection === 0) {
+    await startCurriculum(player, area);
+    return;
+  }
+  await openCurriculumMenu(player);
+}
+
+async function startCurriculum(player, area) {
+  const cfg = state.getConfig(player, getAvailableTopics());
+  const difficultyIndex = Math.max(0, DIFFICULTY_TIERS.findIndex((tier) => tier.value === cfg.difficulty));
+
+  const hasLangs = Array.isArray(area.langs) && area.langs.length > 0;
+  const langDefaultIndex = hasLangs ? Math.max(0, area.langs.indexOf(cfg.lang)) : 0;
+
+  const form = new ModalFormData().title(uiTitle(area.name));
+  if (hasLangs) {
+    form.dropdown(`${THEME.white}${THEME.flower} Language`, area.langs, { defaultValueIndex: langDefaultIndex });
+  }
+  form.dropdown(`${THEME.white}${THEME.flower} Difficulty`, DIFFICULTY_TIERS.map((tier) => tier.label), { defaultValueIndex: difficultyIndex });
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    await openCurriculumArea(player, area.id);
+    return;
+  }
+
+  const values = result.formValues ?? [];
+  const chosenLang = hasLangs ? (area.langs[Math.round(values[0])] ?? area.langs[0]) : "";
+  const difficultyValue = DIFFICULTY_TIERS[Math.round(values[hasLangs ? 1 : 0])]?.value ?? cfg.difficulty;
+  const topicKey = getCurriculumTopicKey(area, chosenLang);
+
+  updatePlayerConfig(player, (prev) => ({
+    ...prev,
+    topic: topicKey,
+    curriculumId: area.id,
+    lang: chosenLang,
+    difficulty: difficultyValue
+  }));
+
+  sendPlayerMessage(player, `${THEME.green}Now studying ${THEME.pink}${getCurriculumSubject(area, chosenLang)} ${THEME.gray}(${difficultyLabel(difficultyValue)}). Here comes your first question!`);
+  await askQuestion(player, "manual");
+}
+
+// ============================================================
+//  TEACHER / ADMIN TOOLS (gated by the sq_admin tag)
+// ============================================================
+async function openAdminMenu(player) {
+  if (!isAdmin(player)) {
+    sendPlayerMessage(player, `${THEME.red}Teacher tools are restricted.`);
+    return;
+  }
+
+  const cls = classStore.get();
+  const assignmentLine = cls && cls.active
+    ? `${THEME.green}Active lesson: ${THEME.white}${cls.subject || cls.topicKey} ${THEME.gray}(${difficultyLabel(cls.difficulty)}${cls.locked ? ", locked" : ""})`
+    : `${THEME.gray}No class lesson assigned. Students study their own picks.`;
+
+  const form = new ActionFormData()
+    .title(uiTitle("Teacher"))
+    .body(`${assignmentLine}\n${uiDivider()}`)
+    .button(`${THEME.white}${THEME.flower} Assign lesson to class`, "textures/items/book_writable")
+    .button(`${THEME.white}${THEME.star} Class roster`, "textures/items/book_written")
+    .button(`${THEME.white}${THEME.heart} Reset a student`, "textures/ui/refresh")
+    .button(`${THEME.white}${THEME.sparkle} Clear class lesson`, "textures/ui/cancel")
+    .button(`${THEME.white}${THEME.heart} Back`, "textures/ui/arrow_left");
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    return;
+  }
+  if (result.selection === 0) {
+    await openAdminAssign(player);
+  } else if (result.selection === 1) {
+    await openAdminRoster(player);
+  } else if (result.selection === 2) {
+    await openAdminResetPick(player);
+  } else if (result.selection === 3) {
+    classStore.clear();
+    if (isCloudEnabled()) {
+      cloudPushClass({ active: false }).catch(() => {});
+    }
+    sendPlayerMessage(player, `${THEME.green}Class lesson cleared. Students study their own picks again.`);
+    for (const p of world.getPlayers()) {
+      if (p.id !== player.id) {
+        sendPlayerMessage(p, "Your teacher cleared the class lesson. Pick your own topic anytime!");
+      }
+    }
+    await openAdminMenu(player);
+  } else if (result.selection === 4) {
+    await openMainMenu(player);
+  }
+}
+
+async function openAdminAssign(player) {
+  if (!isAdmin(player)) {
+    return;
+  }
+
+  const areas = listAreas();
+  const langArea = areas.find((area) => Array.isArray(area.langs));
+  const langs = langArea?.langs ?? [];
+  const cls = classStore.get();
+
+  // Lesson dropdown: every curriculum pack, plus a final "Free topic" entry that
+  // uses the text box instead.
+  const lessonLabels = [...areas.map((area) => area.name), "Free topic (use box below)"];
+  const freeIndex = lessonLabels.length - 1;
+  const defaultLesson = cls && cls.active && cls.curriculumId
+    ? Math.max(0, areas.findIndex((area) => area.id === cls.curriculumId))
+    : freeIndex;
+  const difficultyIndex = Math.max(0, DIFFICULTY_TIERS.findIndex((tier) => tier.value === (cls?.difficulty ?? DEFAULT_DIFFICULTY)));
+
+  const form = new ModalFormData()
+    .title(uiTitle("Assign lesson"))
+    .dropdown(`${THEME.white}${THEME.flower} Lesson pack`, lessonLabels, { defaultValueIndex: defaultLesson })
+    .textField(`${THEME.white}${THEME.flower} Free topic (if chosen above)`, cls && cls.active && !cls.curriculumId ? cls.topicKey : "", "e.g. world_history")
+    .dropdown(`${THEME.white}${THEME.flower} Language (Programming Languages pack)`, langs.length ? langs : ["n/a"], { defaultValueIndex: 0 })
+    .dropdown(`${THEME.white}${THEME.flower} Difficulty`, DIFFICULTY_TIERS.map((tier) => tier.label), { defaultValueIndex: difficultyIndex })
+    .toggle(`${THEME.white}${THEME.flower} Lock topic & difficulty for students`, { defaultValue: Boolean(cls?.locked) });
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    await openAdminMenu(player);
+    return;
+  }
+
+  const values = result.formValues ?? [];
+  const lessonChoice = Math.round(values[0]);
+  const freeTopic = `${values[1] ?? ""}`.trim();
+  const chosenLang = langs[Math.round(values[2])] ?? "";
+  const difficultyValue = DIFFICULTY_TIERS[Math.round(values[3])]?.value ?? DEFAULT_DIFFICULTY;
+  const locked = Boolean(values[4]);
+
+  let assignment;
+  if (lessonChoice === freeIndex) {
+    if (!freeTopic) {
+      sendPlayerMessage(player, `${THEME.red}Pick a pack or type a free topic.`);
+      await openAdminAssign(player);
+      return;
+    }
+    assignment = { topicKey: freeTopic, subject: freeTopic, curriculumId: "", lang: "", difficulty: difficultyValue, locked };
+  } else {
+    const area = areas[lessonChoice];
+    const usesLang = Array.isArray(area.langs);
+    assignment = {
+      topicKey: getCurriculumTopicKey(area, usesLang ? chosenLang : ""),
+      subject: getCurriculumSubject(area, usesLang ? chosenLang : ""),
+      curriculumId: area.id,
+      lang: usesLang ? chosenLang : "",
+      difficulty: difficultyValue,
+      locked
+    };
+  }
+
+  classStore.set(assignment);
+  if (isCloudEnabled()) {
+    cloudPushClass({ active: true, ...assignment }).catch(() => {});
+  }
+  sendPlayerMessage(player, `${THEME.green}Assigned ${THEME.pink}${assignment.subject} ${THEME.gray}(${difficultyLabel(assignment.difficulty)}${locked ? ", locked" : ""}) to the class.`);
+  for (const p of world.getPlayers()) {
+    if (p.id !== player.id) {
+      sendPlayerMessage(p, `Your teacher assigned a new lesson: ${assignment.subject} (${difficultyLabel(assignment.difficulty)}).`);
+    }
+  }
+  await openAdminMenu(player);
+}
+
+async function openAdminRoster(player) {
+  if (!isAdmin(player)) {
+    return;
+  }
+
+  const players = world.getPlayers().filter(isPlayerUsable);
+  const lines = players.map((p) => {
+    const stats = state.getStats(p);
+    const acc = stats.answered > 0 ? Math.round((stats.correct / stats.answered) * 100) : 0;
+    const mastered = state.getTotalMastered(p);
+    const coins = getCoinCount(p);
+    return [
+      `${THEME.pink}${THEME.flower} ${THEME.white}${p.name}`,
+      `${THEME.gray}  ans ${THEME.white}${stats.answered}${THEME.gray} · acc ${THEME.white}${stats.answered > 0 ? acc + "%" : "-"}${THEME.gray} · mastered ${THEME.white}${mastered}${THEME.gray} · coins ${THEME.gold}${coins}`
+    ].join("\n");
+  });
+
+  const form = new MessageFormData()
+    .title(uiTitle("Class roster"))
+    .body(players.length ? lines.join(`\n${THEME.purple}- - - - -\n`) : `${THEME.gray}No players online.`)
+    .button1(`${THEME.white}${THEME.heart} Back`)
+    .button2(`${THEME.gray}Close`);
+
+  const result = await form.show(player);
+  if (!result.canceled && result.selection === 0) {
+    await openAdminMenu(player);
+  }
+}
+
+async function openAdminResetPick(player) {
+  if (!isAdmin(player)) {
+    return;
+  }
+
+  const players = world.getPlayers().filter(isPlayerUsable);
+  const form = new ActionFormData()
+    .title(uiTitle("Reset a student"))
+    .body(`${THEME.white}Pick a student to reset (mastery, streaks, and stats). ${THEME.gray}Coins are kept.\n${uiDivider()}`);
+  for (const p of players) {
+    form.button(`${THEME.white}${p.name}`);
+  }
+  form.button(`${THEME.white}${THEME.heart} Back`, "textures/ui/arrow_left");
+
+  const result = await form.show(player);
+  if (result.canceled) {
+    return;
+  }
+  if (result.selection === players.length) {
+    await openAdminMenu(player);
+    return;
+  }
+
+  const target = players[result.selection];
+  if (!target) {
+    await openAdminMenu(player);
+    return;
+  }
+
+  const confirm = new MessageFormData()
+    .title(uiTitle("Confirm reset"))
+    .body(`${THEME.white}Reset ${THEME.pink}${target.name}${THEME.white}'s progress?\n${THEME.gray}Mastery, streaks, and stats are wiped. Coins are kept.`)
+    .button1(`${THEME.red}Reset`)
+    .button2(`${THEME.gray}Cancel`);
+
+  const confirmResult = await confirm.show(player);
+  if (!confirmResult.canceled && confirmResult.selection === 0) {
+    state.resetPlayer(target);
+    sendPlayerMessage(player, `${THEME.green}Reset ${THEME.pink}${target.name}${THEME.green}'s progress.`);
+    if (target.id !== player.id) {
+      sendPlayerMessage(target, "Your teacher reset your study progress. Fresh start!");
+    }
+  }
+  await openAdminResetPick(player);
 }
 
 async function openStoreMenu(player) {
@@ -549,7 +1028,7 @@ async function fetchPoolQuestions(player, config, topic, masteredIds) {
     apiEndpoint: config.apiEndpoint,
     apiModel: config.apiModel,
     apiKey: config.apiKey
-  }, avoidTexts);
+  }, avoidTexts, resolveQuizMeta(config));
 
   const issueKey = getFetchIssueKey(player, topic);
   if (result.questions.length > 0) {
@@ -613,13 +1092,18 @@ function clearFromPool(player, topic, questionId) {
 }
 
 async function resolveWrongAnswer(player, config, question, reason) {
+  state.recordAnswer(player, false);
+  recordCloudAnswer(player, config, false);
   state.setQuestionStreak(player, question.id, 0);
   applyPenalty(player, config.penaltyMode);
   const answer = question.options[question.answerIndex] ?? "(unknown)";
   sendPlayerMessage(player, `${THEME.red}${reason}${THEME.white} Correct answer: ${THEME.pink}${answer}`);
 }
 
-async function resolveCorrectAnswer(player, topic, question) {
+async function resolveCorrectAnswer(player, config, question) {
+  const topic = config.topic;
+  state.recordAnswer(player, true);
+  recordCloudAnswer(player, config, true);
   giveCoins(player, 1);
 
   const streak = state.getQuestionStreak(player, question.id) + 1;
@@ -635,12 +1119,76 @@ async function resolveCorrectAnswer(player, topic, question) {
   }
 }
 
+// Showing a form the instant a player closes another one can bounce back with
+// "UserBusy". Retry a few times so a follow-up form reliably appears.
+async function showFormResilient(player, form, maxAttempts = 20) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (!isPlayerUsable(player)) {
+      return null;
+    }
+    const response = await form.show(player);
+    if (response.canceled && response.cancelationReason === "UserBusy") {
+      await delayTicks(10);
+      continue;
+    }
+    return response;
+  }
+  return null;
+}
+
+// When a player closes a question with the X, turn it into a study moment:
+// reveal the correct answer and show a short overview of the topic. The recap is
+// AI-generated when available, with a friendly offline fallback. No penalty.
+async function showQuestionOverview(player, config, question) {
+  const correct = question.options[question.answerIndex] ?? "(unknown)";
+  const subject = describeConfigSubject(config);
+
+  // A brief on-screen heads-up while the recap (if any) is fetched.
+  try {
+    player.onScreenDisplay.setActionBar(`${THEME.pink}${THEME.heart} ${THEME.white}Here's a quick overview...`);
+  } catch {
+    /* onScreenDisplay may be unavailable on some runtimes */
+  }
+
+  let recap = null;
+  try {
+    recap = await apiProvider.getSummary(subject, {
+      apiProvider: config.apiProvider,
+      apiEndpoint: config.apiEndpoint,
+      apiModel: config.apiModel,
+      apiKey: config.apiKey
+    });
+  } catch {
+    recap = null;
+  }
+
+  const overviewLine = recap && `${recap}`.trim().length > 0
+    ? `${THEME.gold}${THEME.sparkle} ${THEME.white}${recap}`
+    : `${THEME.gray}Tip: review ${subject} and you'll have this one next time!`;
+
+  const body = [
+    `${THEME.purple}${THEME.star} Topic: ${THEME.white}${subject}`,
+    uiDivider(),
+    `${THEME.white}${question.question}`,
+    `${THEME.green}${THEME.heart} Correct answer: ${THEME.pink}${correct}`,
+    uiDivider(),
+    overviewLine
+  ].join("\n");
+
+  const form = new ActionFormData()
+    .title(uiTitle("Overview"))
+    .body(body)
+    .button(`${THEME.white}${THEME.heart} Got it`);
+
+  await showFormResilient(player, form);
+}
+
 async function askQuestion(player, triggerSource) {
   if (!isPlayerUsable(player)) {
     return;
   }
 
-  const config = state.getConfig(player, getAvailableTopics());
+  const config = getEffectiveConfig(player);
 
   // No AI gate here: if the proxy is unreachable (or off), the provider falls
   // back to the built-in questions, so quizzes keep working offline.
@@ -670,12 +1218,22 @@ async function askQuestion(player, triggerSource) {
     return;
   }
 
+  // Long answers must never get cut off. Two things keep them fully readable:
+  //   1) Each BUTTON label is wrapped onto multiple lines (wrapButtonLabel) so a
+  //      long answer never clips at the edge of the button.
+  //   2) The full options are ALSO listed in the form BODY as a numbered list,
+  //      which wraps and scrolls, so every choice is always readable in full.
+  // Button order matches `options`, so `correctButton` (above) still lines up.
+  const numberedOptions = options
+    .map((option, idx) => `${THEME.pink}${idx + 1}.${THEME.white} ${option.text}`)
+    .join("\n");
+
   const form = new ActionFormData()
-    .title(uiTitle(config.topic))
-    .body(`${THEME.white}${question.question}\n${uiDivider()}`);
-  for (const option of options) {
-    form.button(`${THEME.white}${wrapButtonLabel(option.text)}`);
-  }
+    .title(uiTitle(describeConfigSubject(config)))
+    .body(`${THEME.white}${question.question}\n${uiDivider()}\n${numberedOptions}`);
+  options.forEach((option, idx) => {
+    form.button(`${THEME.white}${wrapButtonLabel(`${idx + 1}. ${option.text}`)}`);
+  });
 
   const playerKey = getPlayerKey(player);
   const token = `${playerKey}:${nowMs()}:${Math.random()}`;
@@ -708,7 +1266,11 @@ async function askQuestion(player, triggerSource) {
   pendingPromptByPlayer.delete(playerKey);
 
   if (result.canceled) {
-    sendPlayerMessage(player, "Question closed. No penalty applied.");
+    // "UserBusy" means the game closed the form (e.g. chat opened), not the
+    // player - don't treat that as a deliberate close.
+    if (result.cancelationReason !== "UserBusy") {
+      await showQuestionOverview(player, config, question);
+    }
     return;
   }
 
@@ -724,52 +1286,60 @@ async function askQuestion(player, triggerSource) {
   clearFromPool(player, config.topic, question.id);
 
   if (result.selection === correctButton) {
-    await resolveCorrectAnswer(player, config.topic, question);
+    await resolveCorrectAnswer(player, config, question);
   } else {
     await resolveWrongAnswer(player, config, question, "Incorrect.");
   }
 }
 
 async function openMainMenu(player) {
-  const config = state.getConfig(player, getAvailableTopics());
-  state.setConfig(player, config);
+  // Persist defaults from the raw player config, but display the effective one
+  // (which reflects any active teacher lesson) so the menu shows what a quiz
+  // will actually use.
+  state.setConfig(player, state.getConfig(player, getAvailableTopics()));
+  const config = getEffectiveConfig(player);
 
   const coins = getCoinCount(player);
   const masteredCount = state.getMasteredIds(player, config.topic).size;
+  const subjectLine = config.classActive
+    ? `${THEME.pink}${THEME.flower} Lesson: ${THEME.white}${describeConfigSubject(config)} ${THEME.gray}(${difficultyLabel(config.difficulty)}${config.classLocked ? ", set by teacher" : ""})`
+    : `${THEME.pink}${THEME.flower} Topic: ${THEME.white}${describeConfigSubject(config)} ${THEME.gray}(${difficultyLabel(config.difficulty)})`;
 
   const form = new ActionFormData()
     .title(uiTitle("Study Quiz"))
     .body([
       `${THEME.gold}${THEME.heart} Coins: ${THEME.white}${coins}`,
-      `${THEME.pink}${THEME.flower} Topic: ${THEME.white}${config.topic}`,
+      subjectLine,
       `${THEME.purple}${THEME.star} Mastered: ${THEME.white}${masteredCount}`,
       getLiveStatusLine(config),
       uiDivider()
-    ].join("\n"))
-    .button(`${THEME.white}${THEME.heart} Take a Quiz`, "textures/items/book_enchanted")
-    .button(`${THEME.white}${THEME.flower} Settings`, "textures/items/comparator")
-    .button(`${THEME.white}${THEME.sparkle} Store`, "textures/items/emerald")
-    .button(`${THEME.white}${THEME.star} My Stats`, "textures/items/book_writable");
+    ].join("\n"));
+
+  // Build buttons + their handlers together so adding the conditional Teacher
+  // entry never desyncs the selection indices.
+  const actions = [
+    { label: `${THEME.white}${THEME.heart} Take a Quiz`, icon: "textures/items/book_enchanted", run: () => askQuestion(player, "manual") },
+    { label: `${THEME.white}${THEME.sparkle} Curriculum`, icon: "textures/items/book_portfolio", run: () => openCurriculumMenu(player) },
+    { label: `${THEME.white}${THEME.flower} Settings`, icon: "textures/items/comparator", run: () => openSettingsMenu(player) },
+    { label: `${THEME.white}${THEME.sparkle} Store`, icon: "textures/items/emerald", run: () => openStoreMenu(player) },
+    { label: `${THEME.white}${THEME.star} My Stats`, icon: "textures/items/book_writable", run: () => openStatsMenu(player) }
+  ];
+  if (isAdmin(player)) {
+    actions.push({ label: `${THEME.white}${THEME.flower} Teacher`, icon: "textures/items/name_tag", run: () => openAdminMenu(player) });
+  }
+
+  for (const action of actions) {
+    form.button(action.label, action.icon);
+  }
 
   const result = await form.show(player);
   if (result.canceled) {
     return;
   }
 
-  if (result.selection === 0) {
-    await askQuestion(player, "manual");
-    return;
-  }
-  if (result.selection === 1) {
-    await openSettingsMenu(player);
-    return;
-  }
-  if (result.selection === 2) {
-    await openStoreMenu(player);
-    return;
-  }
-  if (result.selection === 3) {
-    await openStatsMenu(player);
+  const chosen = actions[result.selection];
+  if (chosen) {
+    await chosen.run();
   }
 }
 
@@ -937,7 +1507,7 @@ function setupAutoPrompts() {
         continue;
       }
 
-      const config = state.getConfig(player, getAvailableTopics());
+      const config = getEffectiveConfig(player);
       const everyMs = config.intervalMin * 60 * 1000;
       const lastMs = lastPromptMsByPlayer.get(key) ?? 0;
       if (nowMs() - lastMs < everyMs) {
@@ -961,7 +1531,7 @@ function setupWarmupPrefetch() {
         continue;
       }
 
-      const cfg = state.getConfig(player, getAvailableTopics());
+      const cfg = getEffectiveConfig(player);
       if (!hasPlayerLiveConfig(cfg)) {
         continue;
       }
@@ -981,6 +1551,46 @@ function setupWarmupPrefetch() {
   }, 200);
 }
 
+// Pushes dirty profiles + batched events to the cloud and pulls the class
+// assignment so the teacher dashboard and the in-game lesson stay in sync.
+// Entirely skipped when cloud sync is disabled.
+function setupCloudSync() {
+  if (!isCloudEnabled()) {
+    return;
+  }
+
+  // Pull the class assignment from the cloud (dashboard is the source of truth).
+  system.runInterval(() => {
+    cloudFetchClass()
+      .then((cls) => {
+        if (cls && cls.active) {
+          classStore.set(cls);
+        } else if (cls) {
+          // An explicit {active:false} from the API means "no lesson".
+          classStore.clear();
+        }
+      })
+      .catch(() => {});
+  }, 1200); // ~60s
+
+  // Flush profile snapshots + answer events.
+  system.runInterval(() => {
+    const onlineById = new Map(world.getPlayers().map((p) => [p.id, p]));
+    for (const id of [...cloudDirtyPlayers]) {
+      cloudDirtyPlayers.delete(id);
+      const player = onlineById.get(id);
+      if (player && isPlayerUsable(player)) {
+        cloudPushProfile(player.id, buildProfileSnapshot(player)).catch(() => {});
+      }
+    }
+
+    if (cloudEventQueue.length > 0) {
+      const batch = cloudEventQueue.splice(0, cloudEventQueue.length);
+      cloudSendEvents(batch).catch(() => {});
+    }
+  }, 1200); // ~60s
+}
+
 function bootstrap() {
   setupJoinSync();
   setupChatCommand();
@@ -988,6 +1598,7 @@ function bootstrap() {
   setupSettingsItemUse();
   setupAutoPrompts();
   setupWarmupPrefetch();
+  setupCloudSync();
 
   system.runTimeout(() => {
     try {

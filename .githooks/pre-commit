@@ -1,0 +1,57 @@
+#!/bin/sh
+# ============================================================
+#  Study Quiz - pre-commit secret guard
+# ============================================================
+# Blocks commits that would leak a secret:
+#   - Terraform state / tfvars (hold your API key in plaintext)
+#   - userConfig.js pointed at a real cloud backend / non-localhost endpoint
+#   - any staged file containing an Anthropic key (sk-ant-...)
+#
+# Enable once per clone:   git config core.hooksPath .githooks
+# Bypass (not recommended): git commit --no-verify
+# ============================================================
+
+fail=0
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+
+# 1) Never commit Terraform state or var files, wherever they live.
+for f in $staged; do
+  case "$f" in
+    *.tfstate|*.tfstate.*)        echo "BLOCK: $f  (Terraform state holds secrets)"; fail=1 ;;
+    *terraform.tfvars|*.auto.tfvars) echo "BLOCK: $f  (Terraform vars may hold your key)"; fail=1 ;;
+  esac
+done
+
+# 2) userConfig.js must stay on placeholders in a committed build.
+if printf '%s\n' "$staged" | grep -q 'study_quiz_bp/scripts/userConfig.js'; then
+  content=$(git show ":study_quiz_bp/scripts/userConfig.js" 2>/dev/null)
+  key=$(printf '%s' "$content"      | sed -n 's/.*USER_API_KEY[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p')
+  cloud=$(printf '%s' "$content"    | sed -n 's/.*USER_CLOUD_API_BASE[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p')
+  endpoint=$(printf '%s' "$content" | sed -n 's/.*USER_API_ENDPOINT[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p')
+
+  if [ -n "$key" ] && [ "$key" != "local-proxy" ]; then
+    echo "BLOCK: userConfig.js USER_API_KEY is a real token (must be 'local-proxy')"; fail=1
+  fi
+  if [ -n "$cloud" ]; then
+    echo "BLOCK: userConfig.js USER_CLOUD_API_BASE is set ($cloud) - leave blank in commits"; fail=1
+  fi
+  case "$endpoint" in
+    *127.0.0.1*|*localhost*|"") : ;;
+    *) echo "BLOCK: userConfig.js USER_API_ENDPOINT is not localhost ($endpoint)"; fail=1 ;;
+  esac
+fi
+
+# 3) Anthropic key format anywhere in staged content (incl. the packaged .mcaddon).
+for f in $staged; do
+  if git show ":$f" 2>/dev/null | grep -aEq 'sk-ant-[A-Za-z0-9_-]{8,}'; then
+    echo "BLOCK: $f contains an Anthropic API key (sk-ant-...)"; fail=1
+  fi
+done
+
+if [ "$fail" -ne 0 ]; then
+  echo ""
+  echo "Commit blocked by the Study Quiz secret guard."
+  echo "Fix the items above, or bypass with: git commit --no-verify  (not recommended)."
+  exit 1
+fi
+exit 0
