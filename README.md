@@ -26,6 +26,11 @@ you can optionally hook up AI for endless questions on any subject.
 Then start your server and it works right away. Players don't install anything —
 they just join and use the **Study Settings book** in their inventory.
 
+**Starting it each time:** double-click **`start-studyquiz.bat`**. The first run
+asks where your Bedrock server is, then remembers it — after that it's one click.
+It launches the server, and the local AI helper too if you're using it (it skips
+the helper automatically when you're on the cloud).
+
 Full steps and troubleshooting are in the [User Guide](USER_GUIDE.md).
 
 ---
