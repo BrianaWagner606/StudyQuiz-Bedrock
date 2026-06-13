@@ -1,42 +1,43 @@
 # ☁️ Study Quiz — Cloud Backend (AWS)
 
-Optional serverless backend that replaces the local `proxy/` and adds
-cross-server progress, a teacher dashboard, and analytics. **The add-on works
-fine without this** — deploy it only when you want the cloud features.
+This is the **optional** cloud version of the AI helper. The add-on works fine
+without it — deploy this only if you want the extras:
 
-It maps almost 1:1 onto the AWS curriculum pack, so standing it up doubles as
-hands-on practice for the SAA / Developer / Terraform Associate exams.
+- No helper program to start before your server
+- A **teacher dashboard** in your browser
+- Player progress and a leaderboard that work **across servers**
+- A shared question cache and some basic analytics
 
----
-
-## What it provisions
-
-| Piece | Service | Why |
-| --- | --- | --- |
-| AI gateway | **Lambda + API Gateway (HTTP API)** | Serverless `proxy/server.js` — no "start proxy first", HTTPS, multi-server |
-| Model key | **Secrets Manager** | Key/token never in source or pack files |
-| Question cache | **DynamoDB (TTL)** | Shared across all players/servers; cuts cost + latency |
-| Player progress | **DynamoDB** | Cross-server profiles + leaderboard |
-| Class assignment | **DynamoDB** | Dashboard ⇄ in-game stay in sync |
-| Teacher dashboard | **S3 + CloudFront** | Live roster + lesson assignment in a browser |
-| Analytics events | **S3** (Athena-queryable) | Per-answer log for learning insights |
-| Cache prewarmer | **EventBridge + Lambda** | Keeps popular packs warm off-peak |
-
-Cost is tiny — everything is pay-per-request / scales to zero. A classroom runs
-for pennies.
+It's all serverless, so when nobody's playing it costs about nothing. And it maps
+neatly onto the AWS topics in the curriculum packs, so setting it up is good
+practice if you're studying for those certs.
 
 ---
 
-## Prerequisites
+## What it builds
 
-- An AWS account + credentials configured (`aws configure` or env vars).
-- **Terraform ≥ 1.5**.
+| Piece | Service |
+| --- | --- |
+| AI gateway | Lambda + API Gateway |
+| Your key / token | Secrets Manager |
+| Question cache | DynamoDB (auto-expiring) |
+| Player progress + leaderboard | DynamoDB |
+| Teacher dashboard | S3 + CloudFront |
+| Analytics events | S3 (queryable with Athena) |
+| Cache warmer | EventBridge + Lambda |
+
+---
+
+## Before you start
+
+- An AWS account with credentials set up (`aws configure`).
+- [Terraform](https://developer.hashicorp.com/terraform/install) 1.5+.
 - One of:
-  - an **Anthropic API key** (`upstream = "anthropic"`), or
-  - **Bedrock** access to a Claude model in your region (`upstream = "bedrock"`).
+  - **Bedrock** access to a Claude model (no API key — recommended), or
+  - an **Anthropic API key**.
 
-No Node build step is needed — the Lambdas use only built-ins + the AWS SDK v3
-that ships in the `nodejs20.x` runtime.
+No build step needed — the Lambdas use only built-ins and the AWS SDK that's
+already in the Node 20 runtime.
 
 ---
 
@@ -45,185 +46,109 @@ that ships in the `nodejs20.x` runtime.
 ```bash
 cd cloud/terraform
 cp terraform.tfvars.example terraform.tfvars
-# edit terraform.tfvars: set upstream + anthropic_api_key (or switch to bedrock)
-
+# edit terraform.tfvars: pick bedrock or anthropic
 terraform init
 terraform apply
 ```
 
-After apply, read the outputs:
+Then grab the outputs:
 
 ```bash
-terraform output game_endpoint        # -> USER_API_ENDPOINT
-terraform output -raw auth_token      # -> USER_API_KEY  (keep secret)
-terraform output api_base_url         # -> USER_CLOUD_API_BASE
-terraform output dashboard_url        # open in a browser
+terraform output game_endpoint        # the AI endpoint for the game
+terraform output -raw auth_token      # the access token (keep it secret)
+terraform output api_base_url         # the data API base
+terraform output dashboard_url        # open this in a browser
 ```
 
-### Point the game at the cloud
+### Point the game at it
 
-Edit `study_quiz_bp/scripts/userConfig.js`:
+Edit `study_quiz_bp/scripts/userConfig.js` on your **server**:
 
 ```js
 export const USER_API_KEY        = "<auth_token>";
-export const USER_API_ENDPOINT   = "<game_endpoint>";          // .../v1/chat/completions
-export const USER_CLOUD_API_BASE = "<api_base_url>";           // same host, no path
+export const USER_API_ENDPOINT   = "<game_endpoint>";   // .../v1/chat/completions
+export const USER_CLOUD_API_BASE = "<api_base_url>";    // same host, no path
 ```
 
-Repackage (`tools/build-dist.ps1`) or copy the behavior pack to your server, then
-restart. `permissions.json` still needs `@minecraft/server-net` (same as the
-local proxy — see the main USER_GUIDE).
-
-> Leave `USER_CLOUD_API_BASE` blank to use the cloud **only** for AI questions
-> and keep progress local.
+Restart the server. (Leave the copy in the repo on its placeholders — see
+[../SECURITY.md](../SECURITY.md).)
 
 ### Open the dashboard
 
-Browse to `dashboard_url`, paste the `auth_token`, and **Save**. You'll see the
-live leaderboard and can assign/lock a class lesson — which the game picks up
-within ~60s (and vice-versa).
+Go to the `dashboard_url`, paste the `auth_token`, and you'll see the leaderboard
+and can assign a class lesson. The game picks up changes within a minute or so.
 
 ---
 
-## Switching to Bedrock
+## Using Bedrock? Turn on model access first
 
-Set in `terraform.tfvars`:
+This is the thing that trips everyone up. Before any Claude model works on
+Bedrock, you have to **request model access** in the console and fill out the
+one-time Anthropic use-case form. Until you do, calls fail with
+*"use case details have not been submitted."*
 
-```hcl
-upstream         = "bedrock"
-anthropic_api_key = ""    # not needed
-# Most current Claude models on Bedrock are invokable ONLY via a cross-region
-# inference profile (us.* in the US, eu.* in Europe). The bare model id
-# (anthropic.claude-...) returns "on-demand throughput isn't supported".
-bedrock_model_id = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
-```
+One catch: the model runs across **several regions**, so you have to enable access
+in **all of them**. For the default Haiku model that's **us-east-1, us-east-2, and
+us-west-2**. For each one:
 
-`terraform apply`. The gateway now calls Bedrock with IAM — no API key. List what
-your account can invoke:
+1. In the AWS console, switch the region (top-right).
+2. Go to **Bedrock → Model access → Modify model access**.
+3. Check **Claude Haiku 4.5**, submit (fill the use-case form the first time).
+4. Wait a couple of minutes for it to say "Access granted."
 
-```bash
-aws bedrock list-inference-profiles --region us-east-1 \
-  --query "inferenceProfileSummaries[?contains(inferenceProfileId,'haiku')].inferenceProfileId" --output text
-```
+If you miss a region, it works *sometimes* and fails *sometimes* — that's the
+tell. No redeploy needed once access goes through.
 
-The IAM policy already allows both `foundation-model/*` and `inference-profile/*`,
-which cross-region profiles require.
-
-### ⚠️ Enable model access first (the step that bites everyone)
-
-Before any Claude model works, your account must **request model access** and
-submit the one-time **Anthropic "use case details" form**. Until you do, calls
-fail with:
-
-> `ResourceNotFoundException: Model use case details have not been submitted for this account...`
-
-Crucially, a **cross-region inference profile invokes the model in several
-regions**, so access must be granted in **every** region the profile spans — not
-just your deploy region. Check which regions:
-
-```bash
-aws bedrock get-inference-profile \
-  --inference-profile-identifier us.anthropic.claude-haiku-4-5-20251001-v1:0 \
-  --region us-east-1 --query 'models[].modelArn' --output text
-```
-
-For `us.anthropic.claude-haiku-4-5` that's **us-east-1, us-east-2, us-west-2**.
-For **each** region:
-
-1. AWS Console → set the **Region** selector (top-right) to that region.
-2. **Amazon Bedrock → Model access** → **Modify model access**.
-3. Tick **Anthropic → Claude Haiku 4.5** → **Next** → **Submit**. The first time
-   it asks for use-case details (one-time, account-wide); after that it's just
-   the per-region checkbox.
-4. Wait for **Access granted** (a minute or two; the error warns up to ~15).
-
-No redeploy is needed afterward — invocations just start succeeding. Symptom of a
-missed region: it works *intermittently* (some calls 200, some 502), because the
-profile load-balances across regions.
-
-> Prefer a single region to manage? Set `bedrock_model_id =
-> "anthropic.claude-3-haiku-20240307-v1:0"` — an older model with on-demand
-> throughput in `us-east-1` only (still needs the use-case form, once).
+Prefer to deal with one region? Set
+`bedrock_model_id = "anthropic.claude-3-haiku-20240307-v1:0"` — an older model
+that runs in `us-east-1` only.
 
 ---
 
-## Analytics with Athena
+## Analytics (optional)
 
-Events land in the events bucket as newline-delimited JSON under
-`events/dt=YYYY-MM-DD/`. Create a partitioned table:
+Every answer is logged to the events bucket as JSON
+(`{"type":"answer","name":"...","topic":"...","difficulty":"...","correct":true}`).
+If you want to ask questions like "which topics is the class struggling with,"
+point Athena at it:
 
 ```sql
 CREATE EXTERNAL TABLE study_quiz_events (
-  type        string,
-  xuid        string,
-  name        string,
-  topic       string,
-  difficulty  string,
-  curriculumId string,
-  correct     boolean,
-  ts          bigint,
-  ingestedAt  string
+  type string, name string, topic string, difficulty string,
+  correct boolean, ts bigint
 )
 PARTITIONED BY (dt string)
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
-LOCATION 's3://<events_bucket>/events/';
+LOCATION 's3://<your-events-bucket>/events/';
 
--- register partitions (or enable partition projection)
 MSCK REPAIR TABLE study_quiz_events;
 ```
 
-Then, e.g. "hardest sub-topics this week":
+Then, for example:
 
 ```sql
-SELECT topic, difficulty,
-       count(*) answered,
-       round(100.0 * sum(if(correct,1,0)) / count(*), 1) accuracy_pct
-FROM study_quiz_events
-WHERE type = 'answer'
-GROUP BY topic, difficulty
-ORDER BY accuracy_pct ASC;
+SELECT topic, round(100.0 * sum(if(correct,1,0)) / count(*), 1) AS accuracy_pct
+FROM study_quiz_events WHERE type = 'answer'
+GROUP BY topic ORDER BY accuracy_pct;
 ```
 
 ---
 
-## Security notes
+## Staying safe
 
-> Publishing the repo? See [../SECURITY.md](../SECURITY.md) for the "Bring Your
-> Own key" model, the pre-push checklist, and token/key rotation.
+- Your key and token live only in Secrets Manager.
+- Every request needs the access token, so a leaked URL alone can't run up a bill.
+- There's API rate limiting, and you can set `budget_alert_email` for a spend
+  alert. For a public deployment, consider adding Cognito logins.
 
-- The model key + shared token live **only** in Secrets Manager.
-- Every request needs `Authorization: Bearer <auth_token>`; the gateway and data
-  API reject anything else, so a leaked endpoint URL alone can't run up your bill.
-- The dashboard holds the token in `localStorage` — fine for a class tool. To
-  harden, front the API/dashboard with **Cognito** and per-teacher logins.
-- Add **API Gateway throttling / WAF** if you expose this widely.
+Full rundown in [../SECURITY.md](../SECURITY.md).
 
 ---
 
-## Tear down
+## Tear it down
 
 ```bash
 terraform destroy
 ```
 
-(The S3 buckets use `force_destroy`, so this removes the dashboard + events too.)
-
----
-
-## Architecture
-
-```
-Minecraft (server-net HTTP)
-        │  Bearer <token>
-        ▼
- API Gateway (HTTP API)
-   ├── POST /v1/chat/completions ─► gateway Lambda ─► DynamoDB cache
-   │                                         └► Anthropic API  | Bedrock
-   ├── GET/POST /profiles/{xuid} ─┐
-   ├── GET  /leaderboard          ├► api Lambda ─► DynamoDB (profiles, config)
-   ├── GET/PUT /class             │              └► S3 (events)
-   └── POST /events ──────────────┘
- EventBridge (rate) ─► prewarm Lambda ─► gateway
-
- Browser ─► CloudFront ─► S3 (dashboard) ─► API Gateway (leaderboard/class)
-```
+Removes everything, dashboard and event history included.

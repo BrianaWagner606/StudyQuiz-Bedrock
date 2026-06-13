@@ -1,74 +1,60 @@
-# Security & publishing guide
+# Security & publishing
 
-How to publish this project (e.g. on GitHub) **without leaking your API key or
-letting strangers use your backend.**
+Sharing this project? Here's how to do it without leaking your API key or letting
+strangers run questions on your bill.
 
 ## The one rule
 
-**You cannot hide a secret in something you ship to players.** The `.mcaddon` is
-a zip of plaintext JavaScript — anyone can unzip it and read `userConfig.js`. So
-if you publish a build that points at *your* cloud backend with *your* token,
-people can extract it and run quizzes on *your* API key / AWS bill.
+**You can't hide a secret in something you give to players.** The `.mcaddon` is
+just a zip of plain text — anyone can open it and read the files inside. So if you
+ship a build that points at *your* backend with *your* key, people can pull that
+out and use it.
 
-➡️ **Ship code, not secrets.** Everyone who wants AI runs their **own** local
-proxy or deploys their **own** `cloud/` backend with their **own** key
-("Bring Your Own"). The repo already defaults to this.
+So the rule is simple: **share the code, not your secrets.** Anyone who wants AI
+runs their own helper or deploys their own cloud with their own key. This project
+already works that way by default.
 
 ## What counts as a secret (never commit these)
 
-| Secret | Where it lives | Protected by |
-| --- | --- | --- |
-| Anthropic API key | `proxy/anthropic-key.txt` / Secrets Manager | `.gitignore`, never in source |
-| Terraform state | `cloud/terraform/*.tfstate` | `.gitignore` (state stores the key in **plaintext**) |
-| Terraform vars | `cloud/terraform/terraform.tfvars` | `.gitignore` |
-| Cloud gateway URL + `auth_token` | `userConfig.js` (if you fill it in) | **build guard + pre-commit hook** |
+- Your AI key — it lives in `proxy/anthropic-key.txt` (local) or AWS Secrets
+  Manager (cloud), never in a pack file.
+- Terraform state and variable files (`cloud/terraform/*.tfstate`,
+  `terraform.tfvars`) — these can hold your key in plain text.
+- A `userConfig.js` that points at your real cloud backend.
 
-⚠️ GitHub's secret scanning will auto-block an `sk-ant-…` key, but it will **not**
-recognize your gateway URL + random token. Don't rely on GitHub for that — that's
-what the hook and build guard below are for.
+All of these are already in `.gitignore`. Heads up: GitHub will catch an
+`sk-ant-…` key automatically, but it will **not** recognize your cloud URL or
+token — that's what the guards below are for.
 
-## Turn on the safety nets (once per clone)
+## Turn on the guard (once per copy)
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-This enables `.githooks/pre-commit`, which blocks commits that contain a real
-token in `userConfig.js`, Terraform state/vars, or an `sk-ant-…` key.
+This enables a check that blocks a commit if it contains a real key, Terraform
+state, or a `userConfig.js` pointed at a live backend. The build script has a
+matching check, so you can't accidentally bake a token into the packaged add-on.
 
-The build script (`tools/build-dist.ps1`) has a matching guard: it refuses to
-build the committed `dist/StudyQuiz.mcaddon` if `userConfig.js` holds anything
-but placeholders. (Use `-AllowSecrets` only to build a **private** bundle you
-will **not** commit.)
+## Before you push — quick checklist
 
-## Before you push — checklist
+- [ ] The hook is on (`git config core.hooksPath .githooks`).
+- [ ] `userConfig.js` shows the placeholders (`local-proxy`, `127.0.0.1`, blank
+      cloud URL).
+- [ ] `git status` shows no `terraform.tfvars`, `*.tfstate`, or key files.
+- [ ] `git grep -nE 'sk-ant-|execute-api'` only turns up example text.
 
-- [ ] `git config core.hooksPath .githooks` is set.
-- [ ] `userConfig.js` shows placeholders: `USER_API_KEY = "local-proxy"`,
-      `USER_CLOUD_API_BASE = ""`, endpoint on `127.0.0.1`.
-- [ ] `git status` shows **no** `terraform.tfvars`, `*.tfstate`, or
-      `proxy/anthropic-key.txt`.
-- [ ] `git grep -nE 'sk-ant-|execute-api'` returns nothing real.
-- [ ] If you rebuilt `dist/`, you did it with placeholders (the guard enforces this).
+## If a secret ever leaks
 
-## If a secret ever leaks (rotate immediately)
+Git history keeps deleted files, so the fix is to **rotate the secret**, not just
+delete it:
 
-Git history keeps deleted secrets, so **rotating is the fix, not deleting the file.**
+- **AI key:** revoke it in your provider's console and make a new one.
+- **Cloud token:** regenerate it with
+  `terraform apply -replace=random_password.auth_token`.
 
-- **Anthropic key:** revoke it in the Anthropic console and issue a new one.
-  Update `proxy/anthropic-key.txt` or `terraform.tfvars` → `terraform apply`.
-- **Cloud auth token:** it's a Terraform `random_password`; regenerate with
-  ```bash
-  terraform apply -replace=random_password.auth_token
-  ```
-  then update `USER_API_KEY` in your *private* `userConfig.js`.
+## A little extra safety (cloud)
 
-## Defense in depth (cloud)
-
-Even with BYO, set these in `cloud/terraform/terraform.tfvars` so a mistake can't
-become an expensive one:
-
-- `budget_alert_email` — monthly AWS spend alert (80% actual / 100% forecast).
-- `throttle_rate_limit` / `throttle_burst_limit` — cap requests/sec on the API.
-- For a widely-shared deployment, add API Gateway usage plans / WAF and consider
-  **Cognito** per-teacher logins for the dashboard instead of a shared token.
+In `cloud/terraform/terraform.tfvars` you can set a `budget_alert_email` to get a
+spend alert, and the API already has rate limits — so even if a token slipped out,
+the damage is capped. Details in [cloud/README.md](cloud/README.md).
