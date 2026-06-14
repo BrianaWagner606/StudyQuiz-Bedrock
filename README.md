@@ -71,8 +71,6 @@ curriculum packs), you have two choices:
   setup, but then there's no helper to start, and you get a teacher dashboard and
   shared progress across servers.
 
-Either way, **your API key stays yours** and never goes into the game files.
-
 ---
 
 ## What's in here
