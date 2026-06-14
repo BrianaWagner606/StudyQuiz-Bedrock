@@ -86,11 +86,5 @@ USER_GUIDE.md    Full setup + how to play
 
 ---
 
-## Sharing this yourself?
-
-Share the code, not your keys. Anyone who wants AI runs their own helper or
-backend with their own API key — yours never goes into a pack file or the repo.
-
----
 
 Made with 💖 — happy studying!
