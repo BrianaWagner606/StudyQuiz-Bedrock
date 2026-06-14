@@ -82,16 +82,14 @@ proxy/           Optional local AI helper
 cloud/           Optional AWS backend (dashboard, shared progress)
 tools/           Build scripts
 USER_GUIDE.md    Full setup + how to play
-SECURITY.md      Read this before you publish your own copy
 ```
 
 ---
 
 ## Sharing this yourself?
 
-If you fork or publish this, please read [SECURITY.md](SECURITY.md) first. The
-short version: share the code, not your keys. Anyone who wants AI runs their own
-helper or backend with their own key.
+Share the code, not your keys. Anyone who wants AI runs their own helper or
+backend with their own API key — yours never goes into a pack file or the repo.
 
 ---
 

@@ -70,8 +70,8 @@ export const USER_API_ENDPOINT   = "<game_endpoint>";   // .../v1/chat/completio
 export const USER_CLOUD_API_BASE = "<api_base_url>";    // same host, no path
 ```
 
-Restart the server. (Leave the copy in the repo on its placeholders — see
-[../SECURITY.md](../SECURITY.md).)
+Restart the server. (Leave the copy in the repo on its placeholders, so your
+token never gets committed.)
 
 ### Open the dashboard
 
@@ -140,8 +140,6 @@ GROUP BY topic ORDER BY accuracy_pct;
 - Every request needs the access token, so a leaked URL alone can't run up a bill.
 - There's API rate limiting, and you can set `budget_alert_email` for a spend
   alert. For a public deployment, consider adding Cognito logins.
-
-Full rundown in [../SECURITY.md](../SECURITY.md).
 
 ---
 
