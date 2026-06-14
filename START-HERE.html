@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Study Quiz — Setup Guide</title>
+<style>
+  :root{
+    --pink:#ff5fa2; --pink-soft:#ffe3ef; --pink-deep:#d63384;
+    --ink:#2c2435; --muted:#6b6276; --line:#f0d9e6;
+    --card:#ffffff; --bg:#fff5fa; --green:#1f9d6b; --gold:#caa23a;
+    --shadow:0 6px 20px rgba(214,51,132,.10);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"Segoe UI",-apple-system,system-ui,Roboto,Helvetica,Arial,sans-serif;
+    font-size:17px; line-height:1.6;
+    background-image:radial-gradient(circle at 12% -5%,rgba(255,95,162,.10),transparent 40%),radial-gradient(circle at 100% 0%,rgba(255,180,80,.08),transparent 35%);
+  }
+  .wrap{max-width:760px;margin:0 auto;padding:26px 18px 70px}
+
+  /* hero */
+  .hero{text-align:center;padding:18px 10px 8px}
+  .hero h1{font-size:34px;margin:0 0 6px;letter-spacing:-.01em}
+  .hero p{color:var(--muted);font-size:18px;margin:0 auto;max-width:46ch}
+  .reassure{display:inline-block;margin-top:14px;background:var(--pink-soft);color:var(--pink-deep);
+    border-radius:999px;padding:7px 16px;font-size:14.5px;font-weight:600}
+
+  /* progress */
+  .progress-wrap{position:sticky;top:0;z-index:5;background:rgba(255,245,250,.92);backdrop-filter:blur(6px);
+    padding:12px 0 10px;margin:18px 0 6px;border-bottom:1px solid var(--line)}
+  .bar{height:14px;background:#fde4ef;border-radius:999px;overflow:hidden}
+  .bar > div{height:100%;width:0;background:linear-gradient(90deg,#ff8cc0,var(--pink));border-radius:999px;transition:width .4s ease}
+  .progress-label{display:flex;justify-content:space-between;align-items:center;font-size:13.5px;color:var(--muted);margin-top:7px}
+  .progress-label b{color:var(--pink-deep)}
+
+  /* need-card */
+  .need{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin:18px 0;box-shadow:var(--shadow)}
+  .need h2{margin:0 0 8px;font-size:18px}
+  .need ul{margin:8px 0 0;padding-left:20px}
+  .need li{margin:4px 0}
+
+  /* steps */
+  .step{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:0;margin:16px 0;box-shadow:var(--shadow);overflow:hidden;transition:border-color .2s}
+  .step.done{border-color:#bfe8d4;background:#f5fffa}
+  .step-head{display:flex;align-items:center;gap:14px;padding:18px 20px;cursor:pointer;user-select:none}
+  .num{flex:none;width:38px;height:38px;border-radius:50%;background:var(--pink);color:#fff;font-weight:800;
+    display:flex;align-items:center;justify-content:center;font-size:18px}
+  .step.done .num{background:var(--green)}
+  .step.done .num::after{content:"✓";font-size:20px}
+  .step.done .num span{display:none}
+  .step-head h3{margin:0;font-size:19px;flex:1}
+  .chev{color:var(--muted);font-size:14px;transition:transform .2s}
+  .step.open .chev{transform:rotate(90deg)}
+  .step-body{display:none;padding:0 20px 20px 72px}
+  .step.open .step-body{display:block}
+  .step-body p{margin:6px 0 12px}
+  .tiny{font-size:14.5px;color:var(--muted)}
+
+  /* code + copy */
+  .code{position:relative;background:#2b2233;color:#ffe6f3;border-radius:12px;padding:14px 16px;margin:10px 0;
+    font-family:"Consolas",ui-monospace,Menlo,monospace;font-size:14px;white-space:pre-wrap;word-break:break-word;line-height:1.5}
+  .copy{position:absolute;top:8px;right:8px;background:var(--pink);color:#fff;border:none;border-radius:8px;
+    padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer}
+  .copy:hover{filter:brightness(1.07)}
+  .copy.ok{background:var(--green)}
+  .path{display:inline-block;background:#fff0f7;border:1px solid var(--line);border-radius:7px;padding:2px 8px;
+    font-family:"Consolas",monospace;font-size:13.5px;color:var(--pink-deep)}
+
+  a{color:var(--pink-deep);font-weight:600}
+  .btn-link{display:inline-block;background:var(--pink);color:#fff;text-decoration:none;border-radius:10px;
+    padding:11px 18px;font-weight:700;margin:6px 0}
+  .btn-link:hover{filter:brightness(1.07)}
+
+  .check{display:flex;align-items:center;gap:10px;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
+  .check input{width:22px;height:22px;accent-color:var(--green);cursor:pointer}
+  .check label{font-weight:700;cursor:pointer}
+
+  .note{background:#fff8e6;border:1px solid #f3e3b0;border-radius:12px;padding:12px 14px;margin:12px 0;font-size:15px}
+  .note b{color:var(--gold)}
+
+  /* optional + help (details) */
+  details{background:#fff;border:1px solid var(--line);border-radius:16px;margin:14px 0;box-shadow:var(--shadow);overflow:hidden}
+  details > summary{list-style:none;cursor:pointer;padding:16px 20px;font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px}
+  details > summary::-webkit-details-marker{display:none}
+  details > summary .plus{margin-left:auto;color:var(--muted);font-weight:400}
+  details[open] > summary .plus{transform:rotate(45deg)}
+  details .inner{padding:0 20px 18px}
+  .opt-badge{font-size:12px;background:var(--pink-soft);color:var(--pink-deep);border-radius:999px;padding:2px 10px;font-weight:700}
+  .faq{border-top:1px solid var(--line);padding:12px 0}
+  .faq:first-child{border-top:none}
+  .faq b{display:block;margin-bottom:3px}
+
+  /* celebrate */
+  #celebrate{display:none;text-align:center;background:linear-gradient(135deg,#fff0f7,#fff8e6);
+    border:2px solid var(--pink);border-radius:20px;padding:26px;margin:24px 0}
+  #celebrate.show{display:block;animation:pop .5s ease}
+  @keyframes pop{0%{transform:scale(.96);opacity:0}100%{transform:scale(1);opacity:1}}
+  #celebrate h2{margin:0 0 6px;font-size:26px}
+
+  footer{text-align:center;color:var(--muted);font-size:14px;margin-top:30px}
+  @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <h1>💖 Study Quiz — Setup Guide</h1>
+    <p>Let's get the quiz game running on your computer. We'll go one little step at a time.</p>
+    <div class="reassure">✨ No experience needed — about 15 minutes</div>
+  </div>
+
+  <div class="progress-wrap">
+    <div class="bar"><div id="barFill"></div></div>
+    <div class="progress-label"><span id="progText">0 of 6 steps done</span><span>Tap a step to open it 👇</span></div>
+  </div>
+
+  <div class="need">
+    <h2>🧺 What you'll need first</h2>
+    <ul>
+      <li>A <b>Windows computer</b></li>
+      <li><b>Minecraft</b> (the normal Bedrock version you play)</li>
+      <li>About 15 minutes ☕</li>
+    </ul>
+    <p class="tiny" style="margin:10px 0 0">Good to know: "Study Quiz" runs on a tiny <b>game server</b> — that's just a small free program from Minecraft that hosts your world. Don't worry, we'll set it up together.</p>
+  </div>
+
+  <!-- STEP 1 -->
+  <div class="step" data-step>
+    <div class="step-head"><div class="num"><span>1</span></div><h3>Get the game server</h3><div class="chev">▶</div></div>
+    <div class="step-body">
+      <p>First we download the little server program from Minecraft. It's free.</p>
+      <a class="btn-link" href="https://www.minecraft.net/en-us/download/server/bedrock" target="_blank" rel="noopener">⬇️ Open the Minecraft server download page</a>
+      <p>On that page, check the box and download the <b>Windows</b> version. Then:</p>
+      <ul>
+        <li>Make a new folder somewhere easy, like on your <b>Desktop</b>, named <span class="path">MinecraftServer</span>.</li>
+        <li><b>Unzip</b> the file you downloaded into that folder (right-click the downloaded file → <i>Extract All</i>).</li>
+      </ul>
+      <p class="tiny">You'll know it worked if you see a file called <span class="path">bedrock_server.exe</span> inside that folder.</p>
+      <div class="check"><input type="checkbox" class="step-check" id="c1"><label for="c1">Done — I have the server folder</label></div>
+    </div>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="step" data-step>
+    <div class="step-head"><div class="num"><span>2</span></div><h3>Download Study Quiz</h3><div class="chev">▶</div></div>
+    <div class="step-body">
+      <p>Now grab the Study Quiz files.</p>
+      <a class="btn-link" href="https://github.com/BrianaWagner606/StudyQuiz-Bedrock/releases/latest" target="_blank" rel="noopener">⬇️ Open the Study Quiz download page</a>
+      <p>Under <b>Assets</b>, click <span class="path">StudyQuiz-Full-Project.zip</span> to download it. Then <b>unzip it</b> (right-click → <i>Extract All</i>) somewhere easy to find.</p>
+      <div class="check"><input type="checkbox" class="step-check" id="c2"><label for="c2">Done — I downloaded and unzipped it</label></div>
+    </div>
+  </div>
+
+  <!-- STEP 3 -->
+  <div class="step" data-step>
+    <div class="step-head"><div class="num"><span>3</span></div><h3>Run the installer</h3><div class="chev">▶</div></div>
+    <div class="step-body">
+      <p>This copies Study Quiz into your server for you.</p>
+      <ul>
+        <li>In the Study Quiz folder you just unzipped, find <span class="path">install-bds.bat</span> and <b>double-click it</b>.</li>
+        <li>A black window opens and asks for your server folder. Paste the path to the <span class="path">MinecraftServer</span> folder from Step 1 and press <b>Enter</b>.</li>
+      </ul>
+      <p class="tiny">💡 To get the folder path: open the MinecraftServer folder, click the address bar at the top, and copy what's there.</p>
+      <div class="note">If Windows shows a blue <b>"Windows protected your PC"</b> box, that's normal for this kind of file. Click <b>More info</b> → <b>Run anyway</b>. It's a tiny text file you can open and read.</div>
+      <div class="check"><input type="checkbox" class="step-check" id="c3"><label for="c3">Done — the installer finished</label></div>
+    </div>
+  </div>
+
+  <!-- STEP 4 -->
+  <div class="step" data-step>
+    <div class="step-head"><div class="num"><span>4</span></div><h3>Turn Study Quiz on in your world</h3><div class="chev">▶</div></div>
+    <div class="step-body">
+      <p>One little step the installer can't do for you: tell your world to use Study Quiz. You'll make two small text files.</p>
+      <p>Go into your server folder → open the <span class="path">worlds</span> folder → open the folder inside it (usually called <span class="path">Bedrock level</span>). Inside that folder, create these <b>two files</b>:</p>
+
+      <p style="margin-bottom:4px"><b>File 1 — name it exactly:</b> <span class="path">world_behavior_packs.json</span></p>
+      <div class="code"><button class="copy">Copy</button>[{"pack_id":"7f01af09-a5e4-45cf-9f36-696f96a50c0b","version":[1,1,0]}]</div>
+
+      <p style="margin-bottom:4px"><b>File 2 — name it exactly:</b> <span class="path">world_resource_packs.json</span></p>
+      <div class="code"><button class="copy">Copy</button>[{"pack_id":"b2d6f3a1-9c44-4e7a-8f12-3a7e5c901d44","version":[1,0,0]}]</div>
+
+      <div class="note"><b>Making a text file:</b> right-click in the folder → <i>New</i> → <i>Text Document</i>, paste the text, then save it with the exact name above. Tip: turn on <b>View → File name extensions</b> in the folder window so the name doesn't secretly end in <span class="path">.txt</span>.</div>
+      <div class="check"><input type="checkbox" class="step-check" id="c4"><label for="c4">Done — both files are made</label></div>
+    </div>
+  </div>
+
+  <!-- STEP 5 -->
+  <div class="step" data-step>
+    <div class="step-head"><div class="num"><span>5</span></div><h3>Start it up</h3><div class="chev">▶</div></div>
+    <div class="step-body">
+      <p>In your Study Quiz folder, double-click <span class="path">start-studyquiz.bat</span>. The first time, it'll ask for your server folder again (paste the same one). After that it's one click!</p>
+      <p>A window opens and gets the server going. Wait until you see this line:</p>
+      <div class="code">[StudyQuiz] Loaded.</div>
+      <p class="tiny">That means it's ready. Leave that window open while you play.</p>
+      <div class="note">If you're on the <b>same computer</b> and Minecraft can't find the server later, run this once: open <b>PowerShell</b> (search for it in the Start menu) and paste this, then press Enter:
+      <div class="code"><button class="copy">Copy</button>CheckNetIsolation LoopbackExempt -a -n="Microsoft.MinecraftUWP_8wekyb3d8bbwe"</div>
+      This just lets Minecraft talk to your own computer.</div>
+      <div class="check"><input type="checkbox" class="step-check" id="c5"><label for="c5">Done — I see "[StudyQuiz] Loaded."</label></div>
+    </div>
+  </div>
+
+  <!-- STEP 6 -->
+  <div class="step" data-step>
+    <div class="step-head"><div class="num"><span>6</span></div><h3>Play! 🎉</h3><div class="chev">▶</div></div>
+    <div class="step-body">
+      <p>Open <b>Minecraft</b> on the same computer. Then:</p>
+      <ul>
+        <li>Click <b>Play</b> → the <b>Servers</b> tab → scroll down → <b>Add Server</b>.</li>
+        <li>Name: anything you like. <b>Server Address:</b> <span class="path">127.0.0.1</span> &nbsp; <b>Port:</b> <span class="path">19132</span></li>
+        <li>Save, then <b>Join</b>.</li>
+      </ul>
+      <p>Once you're in, look in your inventory for the <b>Study Settings book</b> 📖 — use it (hold and right-click) to open the quiz menu. Take a quiz, try Lessons, or chat with Ask Claude!</p>
+      <div class="check"><input type="checkbox" class="step-check" id="c6"><label for="c6">Done — I'm playing Study Quiz!</label></div>
+    </div>
+  </div>
+
+  <div id="celebrate">
+    <h2>🎉 You did it!</h2>
+    <p>Study Quiz is up and running. Have fun studying — you earned it. 💖</p>
+  </div>
+
+  <!-- OPTIONAL: AI -->
+  <details>
+    <summary>🤖 Want endless AI questions? <span class="opt-badge">optional</span><span class="plus">＋</span></summary>
+    <div class="inner">
+      <p>Study Quiz works great with its built-in questions. But if you want <b>endless</b> questions on <b>any</b> subject (and the Curriculum, Lessons, and Ask Claude features), you can connect AI. You'll need:</p>
+      <ul>
+        <li><b>Node.js</b> — a free program. Get it at <a href="https://nodejs.org" target="_blank" rel="noopener">nodejs.org</a> and install it.</li>
+        <li><b>Your own AI key</b> from an AI provider (for example, the Anthropic console). This is yours and stays on your computer.</li>
+      </ul>
+      <p>Then, in the Study Quiz folder, open the <span class="path">proxy</span> folder and double-click <span class="path">start-proxy.bat</span>. The first time, it makes a file for your key and opens it — paste your key in, save, and run it again. Start it <b>before</b> the server each time.</p>
+      <p class="tiny">After that, the one-click <span class="path">start-studyquiz.bat</span> starts both for you. Your key never leaves your computer.</p>
+    </div>
+  </details>
+
+  <!-- OPTIONAL: friends -->
+  <details>
+    <summary>👫 Want a friend to join? <span class="opt-badge">optional</span><span class="plus">＋</span></summary>
+    <div class="inner">
+      <p><b>Same house / same WiFi:</b> while your server is running, your friend opens Minecraft → <b>Servers</b> → <b>Add Server</b> and uses <b>your computer's address</b> on port <span class="path">19132</span>.</p>
+      <p class="tiny">To find your computer's address, open PowerShell and type <span class="path">ipconfig</span> — look for the "IPv4 Address" that starts with <span class="path">192.168</span>.</p>
+      <p><b>Far away (different house):</b> the easiest safe way is a free tool called <a href="https://tailscale.com" target="_blank" rel="noopener">Tailscale</a> — you both install it, and your friend connects to the address it gives you. No complicated router settings.</p>
+      <div class="note">Keep your computer on and the server window open while your friend plays — the world lives on your computer.</div>
+    </div>
+  </details>
+
+  <!-- HELP -->
+  <details>
+    <summary>🛟 Something not working?<span class="plus">＋</span></summary>
+    <div class="inner">
+      <div class="faq"><b>The coin or items look like purple-and-black squares.</b>Your world isn't using the resource pack. Double-check <b>Step 4</b> (the two files are named exactly right and in the world folder), then restart the server.</div>
+      <div class="faq"><b>The Study Settings book isn't in my inventory.</b>Make sure the server window showed <span class="path">[StudyQuiz] Loaded.</span> If not, re-check Step 4 — the version numbers in the files must match (behavior pack is <span class="path">[1,1,0]</span>). An operator can also type <span class="path">/scriptevent study:open</span> in chat to open the menu.</div>
+      <div class="faq"><b>Minecraft won't connect to my own computer.</b>Run the PowerShell line from Step 5 (the <span class="path">CheckNetIsolation</span> one), then try joining again.</div>
+      <div class="faq"><b>Quizzes feel basic or repeat.</b>That's the built-in question set. Turn on AI (the 🤖 section above) for endless fresh questions.</div>
+      <div class="faq"><b>It says "could not make an HTTP request" when using AI.</b>The AI helper isn't running. Start <span class="path">start-proxy.bat</span> <b>before</b> the server, and make sure your key is pasted in.</div>
+      <div class="faq"><b>Still stuck?</b>The full written guide is the <span class="path">USER_GUIDE.md</span> file in the same folder.</div>
+    </div>
+  </details>
+
+  <footer>Made with 💖 — happy studying!<br><button id="resetBtn" style="margin-top:10px;background:none;border:none;color:#b9a9b9;text-decoration:underline;cursor:pointer;font-size:13px">reset my checklist</button></footer>
+
+</div>
+
+<script>
+  // --- Open/close steps by tapping the header ---
+  document.querySelectorAll('[data-step]').forEach((step, i) => {
+    const head = step.querySelector('.step-head');
+    head.addEventListener('click', (e) => {
+      if (e.target.closest('.check')) return; // don't toggle when clicking the checkbox row
+      step.classList.toggle('open');
+    });
+    if (i === 0) step.classList.add('open'); // open the first step to start
+  });
+
+  // --- Copy buttons ---
+  document.querySelectorAll('.copy').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const text = btn.parentElement.textContent.replace(/^Copy/, '').trim();
+      navigator.clipboard.writeText(text).then(() => {
+        const old = btn.textContent; btn.textContent = 'Copied!'; btn.classList.add('ok');
+        setTimeout(() => { btn.textContent = old; btn.classList.remove('ok'); }, 1500);
+      }).catch(() => { btn.textContent = 'Copy it manually'; });
+    });
+  });
+
+  // --- Progress + checklist (saved on this computer) ---
+  const KEY = 'studyquiz_setup_progress';
+  const checks = [...document.querySelectorAll('.step-check')];
+  const barFill = document.getElementById('barFill');
+  const progText = document.getElementById('progText');
+  const celebrate = document.getElementById('celebrate');
+
+  function save() {
+    const state = {};
+    checks.forEach(c => state[c.id] = c.checked);
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+  }
+  function load() {
+    try {
+      const state = JSON.parse(localStorage.getItem(KEY) || '{}');
+      checks.forEach(c => { if (state[c.id]) c.checked = true; });
+    } catch (e) {}
+  }
+  function update() {
+    const done = checks.filter(c => c.checked).length;
+    barFill.style.width = (done / checks.length * 100) + '%';
+    progText.textContent = done + ' of ' + checks.length + ' steps done';
+    checks.forEach(c => c.closest('.step').classList.toggle('done', c.checked));
+    celebrate.classList.toggle('show', done === checks.length);
+    if (done === checks.length) celebrate.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  checks.forEach(c => c.addEventListener('change', () => { save(); update(); }));
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    checks.forEach(c => c.checked = false); save(); update();
+  });
+
+  load();
+  // run update without auto-scrolling on first load
+  (function initial(){
+    const done = checks.filter(c => c.checked).length;
+    barFill.style.width = (done / checks.length * 100) + '%';
+    progText.textContent = done + ' of ' + checks.length + ' steps done';
+    checks.forEach(c => c.closest('.step').classList.toggle('done', c.checked));
+    celebrate.classList.toggle('show', done === checks.length);
+  })();
+</script>
+</body>
+</html>

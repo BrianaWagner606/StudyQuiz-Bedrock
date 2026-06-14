@@ -17,6 +17,10 @@ you can optionally hook up AI for endless questions on any subject.
 
 👉 **[Download the latest release](https://github.com/BrianaWagner606/StudyQuiz-Bedrock/releases/latest)**
 
+> **New to this and not a computer person?** Open **`START-HERE.html`** (it's in
+> the download) — a friendly, click-through guide with a progress checklist and
+> copy buttons. No instructions to memorize.
+
 - **Easiest:** grab `StudyQuiz-Full-Project.zip`, unzip it, run `install-bds.bat`,
   and paste the path to your server folder. It copies the packs and sets up the
   permissions file for you.

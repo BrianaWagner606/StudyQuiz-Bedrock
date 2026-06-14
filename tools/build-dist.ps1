@@ -103,7 +103,7 @@ New-Zip -ZipPath (Join-Path $dist 'StudyQuiz.mcaddon') `
 #    Includes the optional cloud/ backend but never its Terraform state or
 #    secrets (terraform.tfvars, *.tfstate, .terraform/, build zips).
 New-Zip -ZipPath (Join-Path $dist 'StudyQuiz-Full-Project.zip') `
-        -IncludeRoots @('study_quiz_bp','study_quiz_rp','proxy','cloud','tools','install-bds.bat','start-studyquiz.bat','README.md','USER_GUIDE.md','SECURITY.md','LICENSE') `
+        -IncludeRoots @('study_quiz_bp','study_quiz_rp','proxy','cloud','tools','install-bds.bat','start-studyquiz.bat','START-HERE.html','README.md','USER_GUIDE.md','SECURITY.md','LICENSE') `
         -ExcludeRegex '(^|/)\.git/|(^|/)dist/|key\.txt$|key\.txt\.txt$|(^|/)\.terraform/|(^|/)\.build/|\.tfstate(\.[0-9]+)?$|\.tfstate\.backup$|(^|/)terraform\.tfvars$|\.auto\.tfvars$'
 
 Write-Host "Done." -ForegroundColor Cyan
